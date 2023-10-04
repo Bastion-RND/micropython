@@ -9,3 +9,5 @@ set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.spiram_oct
     boards/ESP32_S3_WROOM_1/sdkconfig.board
 )
+
+set(MICROPY_FROZEN_MANIFEST ${MICROPY_BOARD_DIR}/manifest.py)
