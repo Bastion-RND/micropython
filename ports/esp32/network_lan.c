@@ -182,35 +182,13 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
     self->phy = NULL;
 
     #if CONFIG_ETH_USE_SPI_ETHERNET
-    spi_device_handle_t spi_handle = NULL;
-    if (IS_SPI_PHY(args[ARG_phy_type].u_int)) {
-        spi_device_interface_config_t devcfg = {
-            .mode = 0,
-            .clock_speed_hz = MICROPY_PY_NETWORK_LAN_SPI_CLOCK_SPEED_MZ * 1000 * 1000,
-            .queue_size = 20,
-            .spics_io_num = self->phy_cs_pin,
-        };
-        switch (args[ARG_phy_type].u_int) {
-            #if CONFIG_ETH_SPI_ETHERNET_DM9051
-            case PHY_DM9051: {
-                devcfg.command_bits = 1;
-                devcfg.address_bits = 7;
-                break;
-            }
-            #endif
-            #if CONFIG_ETH_SPI_ETHERNET_W5500
-            case PHY_W5500: {
-                devcfg.command_bits = 16;
-                devcfg.address_bits = 8;
-                break;
-            }
-            #endif
-        }
-        spi_host_device_t host = machine_hw_spi_get_host(args[ARG_spi].u_obj);
-        if (spi_bus_add_device(host, &devcfg, &spi_handle) != ESP_OK) {
-            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("spi_bus_add_device failed"));
-        }
-    }
+    spi_host_device_t spi_host_device = machine_hw_spi_get_host(args[ARG_spi].u_obj);
+    spi_device_interface_config_t spi_device_interface_config = {
+        .mode = 0,
+        .clock_speed_hz = MICROPY_PY_NETWORK_LAN_SPI_CLOCK_SPEED_MZ * 1000 * 1000,
+        .queue_size = 20,
+        .spics_io_num = self->phy_cs_pin,
+    };
     #endif
 
     switch (args[ARG_phy_type].u_int) {
@@ -236,7 +214,9 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         #if CONFIG_ETH_USE_SPI_ETHERNET
         #if CONFIG_ETH_SPI_ETHERNET_KSZ8851SNL
         case PHY_KSZ8851SNL: {
-            eth_ksz8851snl_config_t chip_config = ETH_KSZ8851SNL_DEFAULT_CONFIG(spi_handle);
+            eth_ksz8851snl_config_t chip_config = ETH_KSZ8851SNL_DEFAULT_CONFIG(
+                spi_host_device, &spi_device_interface_config
+            );
             chip_config.int_gpio_num = self->phy_int_pin;
             mac = esp_eth_mac_new_ksz8851snl(&chip_config, &mac_config);
             self->phy = esp_eth_phy_new_ksz8851snl(&phy_config);
@@ -245,7 +225,9 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         #endif
         #if CONFIG_ETH_SPI_ETHERNET_DM9051
         case PHY_DM9051: {
-            eth_dm9051_config_t chip_config = ETH_DM9051_DEFAULT_CONFIG(spi_handle);
+            eth_dm9051_config_t chip_config = ETH_DM9051_DEFAULT_CONFIG(
+                spi_host_device, &spi_device_interface_config
+            );
             chip_config.int_gpio_num = self->phy_int_pin;
             mac = esp_eth_mac_new_dm9051(&chip_config, &mac_config);
             self->phy = esp_eth_phy_new_dm9051(&phy_config);
@@ -254,7 +236,9 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         #endif
         #if CONFIG_ETH_SPI_ETHERNET_W5500
         case PHY_W5500: {
-            eth_w5500_config_t chip_config = ETH_W5500_DEFAULT_CONFIG(spi_handle);
+            eth_w5500_config_t chip_config = ETH_W5500_DEFAULT_CONFIG(
+                spi_host_device, &spi_device_interface_config
+            );
             chip_config.int_gpio_num = self->phy_int_pin;
             mac = esp_eth_mac_new_w5500(&chip_config, &mac_config);
             self->phy = esp_eth_phy_new_w5500(&phy_config);
