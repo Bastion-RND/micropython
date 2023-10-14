@@ -31,12 +31,37 @@
 #if CONFIG_USB_OTG_SUPPORTED && !CONFIG_ESP_CONSOLE_USB_CDC && !CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
 
 #include "esp_timer.h"
+#include "esp_mac.h"
+
 #ifndef NO_QSTR
 #include "tinyusb.h"
 #include "tusb_cdc_acm.h"
 #endif
 
 #define CDC_ITF TINYUSB_CDC_ACM_0
+
+static char serial_string[12 + 1] = {0};
+static tusb_desc_strarray_device_t descriptor_str_custom = {
+    // array of pointer to string descriptors
+    (char[]){0x09, 0x04},                       // 0: is supported language is English (0x0409)
+    CONFIG_TINYUSB_DESC_MANUFACTURER_STRING,    // 1: Manufacturer
+    CONFIG_TINYUSB_DESC_PRODUCT_STRING,         // 2: Product
+    /*CONFIG_TINYUSB_DESC_SERIAL_STRING */
+    serial_string,                              // 3: Serials, should use chip ID 
+
+#if CONFIG_TINYUSB_CDC_ENABLED
+    CONFIG_TINYUSB_DESC_CDC_STRING,             // 4: CDC Interface
+#else
+    "",
+#endif
+
+#if CONFIG_TINYUSB_MSC_ENABLED
+    CONFIG_TINYUSB_DESC_MSC_STRING,             // 5: MSC Interface
+#else
+    "",
+#endif
+};
+
 
 static uint8_t usb_rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
 
@@ -62,8 +87,21 @@ static void usb_callback_rx(int itf, cdcacm_event_t *event) {
 }
 
 void usb_init(void) {
+    uint8_t chipid[6];
+    esp_efuse_mac_get_default(chipid);
+
+   // convert chipid to hex
+    int hexlen = sizeof(serial_string) - 1;
+    for (int i = 0; i < hexlen; i += 2) {
+        static const char *hexdig = "0123456789abcdef";
+        serial_string[i] = hexdig[chipid[i / 2] >> 4];
+        serial_string[i + 1] = hexdig[chipid[i / 2] & 0x0f];
+    }
+    serial_string[hexlen] = 0;
+
     // Initialise the USB with defaults.
     tinyusb_config_t tusb_cfg = {0};
+    tusb_cfg.string_descriptor = descriptor_str_custom;
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
     // Initialise the USB serial interface.
