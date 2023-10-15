@@ -38,6 +38,10 @@
 #include "tusb_cdc_acm.h"
 #endif
 
+#if MICROPY_PY_MACHINE_CDC
+#include "machine_cdc.h"
+#endif
+
 #define CDC_ITF TINYUSB_CDC_ACM_0
 
 static char serial_string[12 + 1] = {0};
@@ -63,6 +67,7 @@ static tusb_desc_strarray_device_t descriptor_str_custom = {
 };
 
 
+#if !MICROPY_PY_MACHINE_CDC
 static uint8_t usb_rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
 
 static void usb_callback_rx(int itf, cdcacm_event_t *event) {
@@ -77,14 +82,22 @@ static void usb_callback_rx(int itf, cdcacm_event_t *event) {
             break;
         }
         for (size_t i = 0; i < len; ++i) {
+            #ifdef MICROPY_PY_MACHINE_CDC
+            if (pcdc_rx_ringbuf) {
+                ringbuf_put(pcdc_rx_ringbuf, usb_rx_buf[i]);
+            }
+            #else
             if (usb_rx_buf[i] == mp_interrupt_char) {
                 mp_sched_keyboard_interrupt();
             } else {
                 ringbuf_put(&stdin_ringbuf, usb_rx_buf[i]);
             }
+            #endif
         }
     }
 }
+#endif
+
 
 void usb_init(void) {
     uint8_t chipid[6];
@@ -109,6 +122,12 @@ void usb_init(void) {
         .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = CDC_ITF,
         .rx_unread_buf_sz = 256,
+        #if MICROPY_PY_MACHINE_CDC
+        .callback_rx = &machine_cdc_usb_callback_rx,
+        .callback_rx_wanted_char = &machine_cdc_cdcacm_callback,
+        .callback_line_state_changed = &machine_cdc_cdcacm_callback,
+        .callback_line_coding_changed = &machine_cdc_cdcacm_callback,
+        #else
         .callback_rx = &usb_callback_rx,
         #ifdef MICROPY_HW_USB_CUSTOM_RX_WANTED_CHAR_CB
         .callback_rx_wanted_char = &MICROPY_HW_USB_CUSTOM_RX_WANTED_CHAR_CB,
@@ -119,6 +138,7 @@ void usb_init(void) {
         #ifdef MICROPY_HW_USB_CUSTOM_LINE_CODING_CB
         .callback_line_coding_changed = &MICROPY_HW_USB_CUSTOM_LINE_CODING_CB,
         #endif
+        #endif //MICROPY_PY_MACHINE_CDC
     };
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
 
