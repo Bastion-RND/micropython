@@ -90,8 +90,8 @@ void tud_cdc_tx_complete_cb(uint8_t itf) {
 STATIC void machine_cdc_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     machine_cdc_obj_t *self = MP_OBJ_TO_PTR(self_in);    
     uint8_t line_state = tud_cdc_get_line_state();
-    mp_printf(print, "CDC(DTR:%i, RTS:%i", 
-        (line_state >> 0) & 0x1, (line_state >> 1) & 0x1);
+    mp_printf(print, "CDC(DTR: %d, RTS: %d", 
+        ((line_state >> 0) & 0x1), ((line_state >> 1) & 0x1));
     if (self->rx_ringbuf.buf) {
         mp_printf(print, ", RX available: %u", 
             ringbuf_avail(&self->rx_ringbuf));    
