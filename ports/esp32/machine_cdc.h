@@ -26,7 +26,6 @@
 #ifndef MICROPY_INCLUDED_ESP32_MACHINE_CDC_H
 #define MICROPY_INCLUDED_ESP32_MACHINE_CDC_H
 
-void machine_cdc_usb_callback_rx(int itf, cdcacm_event_t *event);
-void machine_cdc_cdcacm_callback(int itf, cdcacm_event_t *event);
+void machine_cdc_callback(int itf, cdcacm_event_t *event);
 
 #endif // MICROPY_INCLUDED_ESP32_MACHINE_CDC_H

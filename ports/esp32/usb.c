@@ -123,10 +123,10 @@ void usb_init(void) {
         .cdc_port = CDC_ITF,
         .rx_unread_buf_sz = 256,
         #if MICROPY_PY_MACHINE_CDC
-        .callback_rx = &machine_cdc_usb_callback_rx,
-        .callback_rx_wanted_char = &machine_cdc_cdcacm_callback,
-        .callback_line_state_changed = &machine_cdc_cdcacm_callback,
-        .callback_line_coding_changed = &machine_cdc_cdcacm_callback,
+        .callback_rx = &machine_cdc_callback,
+        .callback_rx_wanted_char = &machine_cdc_callback,
+        .callback_line_state_changed = &machine_cdc_callback,
+        .callback_line_coding_changed = &machine_cdc_callback,
         #else
         .callback_rx = &usb_callback_rx,
         #ifdef MICROPY_HW_USB_CUSTOM_RX_WANTED_CHAR_CB
