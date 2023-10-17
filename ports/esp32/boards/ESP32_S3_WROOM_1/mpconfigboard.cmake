@@ -10,9 +10,9 @@ set(SDKCONFIG_DEFAULTS
     ${MICROPY_BOARD_DIR}/sdkconfig.board
 )
 
-list(APPEND MICROPY_DEF_BOARD
-    MICROPY_HW_BOARD_NAME="Interstellar ESP32-S3-WROOM-1 module"
-)
+# set(MICROPY_SOURCE_BOARD
+    # ${MICROPY_BOARD_DIR}/???.c
+# )
 
 set(MICROPY_FROZEN_MANIFEST 
     ${MICROPY_BOARD_DIR}/manifest.py
