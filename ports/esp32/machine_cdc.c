@@ -22,79 +22,77 @@ static machine_cdc_obj_t *instance = NULL;
 
 
 /******************************************************************************/
-// USB CDC Callbacks 
+// USB CDC Callbacks
 
 void machine_cdc_callback(int itf, cdcacm_event_t *event) {
     machine_cdc_obj_t *self = MP_OBJ_TO_PTR(instance);
     if (self) {
         switch (event->type)
         {
-        case CDC_EVENT_RX:
-            for (;;) {
-                uint8_t buf[64];
-                size_t len;
+            case CDC_EVENT_RX:
+                for (;;) {
+                    uint8_t buf[64];
+                    size_t len;
 
-                esp_err_t ret = tinyusb_cdcacm_read(itf, buf, sizeof(buf), &len);
-                if (ret != ESP_OK) {
-                    break;
-                }
-                if (len == 0) {
-                    break;
-                }
-                for (size_t i = 0; i < len; i++) {
-                    if (ringbuf_free(&self->rx_ringbuf) == 0) {
-                        ringbuf_get(&self->rx_ringbuf);
+                    esp_err_t ret = tinyusb_cdcacm_read(itf, buf, sizeof(buf), &len);
+                    if (ret != ESP_OK) {
+                        break;
                     }
-                    ringbuf_put(&self->rx_ringbuf, buf[i]);
+                    if (len == 0) {
+                        break;
+                    }
+                    for (size_t i = 0; i < len; i++) {
+                        if (ringbuf_free(&self->rx_ringbuf) == 0) {
+                            ringbuf_get(&self->rx_ringbuf);
+                        }
+                        ringbuf_put(&self->rx_ringbuf, buf[i]);
+                    }
+                    break;
                 }
                 break;
+
+            case CDC_EVENT_RX_WANTED_CHAR:
+                ESP_LOGD(LOG_PREFIX, "Received wanted char: %c",
+                    event->rx_wanted_char_data.wanted_char);
+                break;
+
+            case CDC_EVENT_LINE_STATE_CHANGED:
+                ESP_LOGD(LOG_PREFIX, "Callback line state: DTR(%i), RTS(%i)",
+                    event->line_state_changed_data.dtr,
+                    event->line_state_changed_data.rts);
+                break;
+
+            case CDC_EVENT_LINE_CODING_CHANGED:
+                ESP_LOGD(LOG_PREFIX, "Callback line coding: bit_rate=%lu, data_bits=%i, parity=%i, stop_bits=%i",
+                    event->line_coding_changed_data.p_line_coding->bit_rate,
+                    event->line_coding_changed_data.p_line_coding->data_bits,
+                    event->line_coding_changed_data.p_line_coding->parity,
+                    event->line_coding_changed_data.p_line_coding->stop_bits);
+                break;
+
+            default:
+                ESP_LOGE(LOG_PREFIX, "cdcacm_callback - unknown event: %i", event->type);
+                break;
             }
-            break;
-
-        case CDC_EVENT_RX_WANTED_CHAR:
-            ESP_LOGD(LOG_PREFIX, "Received wanted char: %c", 
-                event->rx_wanted_char_data.wanted_char);
-            break;
-        
-        case CDC_EVENT_LINE_STATE_CHANGED: 
-            ESP_LOGD(LOG_PREFIX, "Callback line state: DTR(%i), RTS(%i)", 
-                event->line_state_changed_data.dtr, 
-                event->line_state_changed_data.rts);
-            break;
-
-        case CDC_EVENT_LINE_CODING_CHANGED:
-            ESP_LOGD(LOG_PREFIX, "Callback line coding: bit_rate=%lu, data_bits=%i, parity=%i, stop_bits=%i", 
-                event->line_coding_changed_data.p_line_coding->bit_rate, 
-                event->line_coding_changed_data.p_line_coding->data_bits,
-                event->line_coding_changed_data.p_line_coding->parity, 
-                event->line_coding_changed_data.p_line_coding->stop_bits);
-            break;
-
-        default:
-            ESP_LOGE(LOG_PREFIX, "cdcacm_callback - unknown event: %i", event->type);
-            break;
-        }
-    }    
+    }
 }
 
 void tud_cdc_tx_complete_cb(uint8_t itf) {
-    //machine_cdc_obj_t *self = MP_OBJ_TO_PTR(instance);
+    // machine_cdc_obj_t *self = MP_OBJ_TO_PTR(instance);
     int bytes_left = CONFIG_TINYUSB_CDC_TX_BUFSIZE - tud_cdc_write_available();
     ESP_LOGI(LOG_PREFIX, "cdc_tx_complete: %i bytes left", bytes_left);
 }
 
 
 /******************************************************************************/
-// MicroPython bindings 
+// MicroPython bindings
 
 STATIC void machine_cdc_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
-    machine_cdc_obj_t *self = MP_OBJ_TO_PTR(self_in);    
+    machine_cdc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint8_t line_state = tud_cdc_get_line_state();
-    mp_printf(print, "CDC(DTR: %d, RTS: %d", 
-        ((line_state >> 0) & 0x1), ((line_state >> 1) & 0x1));
+    mp_printf(print, "CDC(DTR: %d, RTS: %d", ((line_state >> 0) & 0x1), ((line_state >> 1) & 0x1));
     if (self->rx_ringbuf.buf) {
-        mp_printf(print, ", RX available: %u", 
-            ringbuf_avail(&self->rx_ringbuf));    
+        mp_printf(print, ", RX available: %u", ringbuf_avail(&self->rx_ringbuf));
     }
     mp_printf(print, ")");
 }
@@ -127,25 +125,20 @@ STATIC mp_obj_t machine_cdc_make_new(const mp_obj_type_t *type, size_t n_args, s
         instance->rx_ringbuf.iget = instance->rx_ringbuf.iput = 0;
     }
 
-    //TODO? timeout
+    // TODO? timeout
 
-    //TODO...
-    //tud_cdc_set_wanted_char('\n'); //TODO! parameter...
-
+    // tud_cdc_set_wanted_char('\n'); // TODO! parameter...
 
     return MP_OBJ_FROM_PTR(instance);
 }
 
 STATIC mp_obj_t machine_cdc_line_state(mp_obj_t self_in) {
-    //machine_cdc_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    // machine_cdc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     uint8_t line_state = tud_cdc_get_line_state();
     mp_obj_t dict = mp_obj_new_dict(2);
-    mp_obj_dict_store(dict, 
-        mp_obj_new_str("DTR", 3), mp_obj_new_int((line_state >> 0) & 0x1));
-    mp_obj_dict_store(dict, 
-        mp_obj_new_str("RTS", 3), mp_obj_new_int((line_state >> 1) & 0x1));
-    ESP_LOGI(LOG_PREFIX, "line state: DTR(%i), RTS(%i)", 
-        (line_state >> 0) & 0x1, (line_state >> 1) & 0x1);
+    mp_obj_dict_store(dict, mp_obj_new_str("DTR", 3), mp_obj_new_int((line_state >> 0) & 0x1));
+    mp_obj_dict_store(dict, mp_obj_new_str("RTS", 3), mp_obj_new_int((line_state >> 1) & 0x1));
+    ESP_LOGI(LOG_PREFIX, "line state: DTR(%i), RTS(%i)", (line_state >> 0) & 0x1, (line_state >> 1) & 0x1);
     return dict;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_cdc_line_state_obj, machine_cdc_line_state);
@@ -155,15 +148,11 @@ STATIC mp_obj_t machine_cdc_line_coding(mp_obj_t self_in) {
     cdc_line_coding_t line_coding;
     tud_cdc_get_line_coding(&line_coding);
     mp_obj_t dict = mp_obj_new_dict(4);
-    mp_obj_dict_store(dict, 
-        mp_obj_new_str("bit_rate", 8), mp_obj_new_int(line_coding.bit_rate));
-    mp_obj_dict_store(dict, 
-        mp_obj_new_str("data_bits", 9), mp_obj_new_int(line_coding.data_bits));
-    mp_obj_dict_store(dict, 
-        mp_obj_new_str("parity", 6), mp_obj_new_int(line_coding.parity));
-    mp_obj_dict_store(dict, 
-        mp_obj_new_str("stop_bits", 9), mp_obj_new_int(line_coding.stop_bits));
-    ESP_LOGI(LOG_PREFIX, "line coding: bit_rate=%lu, data_bits=%i, parity=%i, stop_bits=%i", 
+    mp_obj_dict_store(dict, mp_obj_new_str("bit_rate", 8), mp_obj_new_int(line_coding.bit_rate));
+    mp_obj_dict_store(dict, mp_obj_new_str("data_bits", 9), mp_obj_new_int(line_coding.data_bits));
+    mp_obj_dict_store(dict, mp_obj_new_str("parity", 6), mp_obj_new_int(line_coding.parity));
+    mp_obj_dict_store(dict, mp_obj_new_str("stop_bits", 9), mp_obj_new_int(line_coding.stop_bits));
+    ESP_LOGI(LOG_PREFIX, "line coding: bit_rate=%lu, data_bits=%i, parity=%i, stop_bits=%i",
         line_coding.bit_rate, line_coding.data_bits, line_coding.parity, line_coding.stop_bits);
     return dict;
 }
