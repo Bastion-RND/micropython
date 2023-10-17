@@ -216,7 +216,7 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         case PHY_KSZ8851SNL: {
             eth_ksz8851snl_config_t chip_config = ETH_KSZ8851SNL_DEFAULT_CONFIG(
                 spi_host_device, &spi_device_interface_config
-            );
+                );
             chip_config.int_gpio_num = self->phy_int_pin;
             mac = esp_eth_mac_new_ksz8851snl(&chip_config, &mac_config);
             self->phy = esp_eth_phy_new_ksz8851snl(&phy_config);
@@ -227,7 +227,7 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         case PHY_DM9051: {
             eth_dm9051_config_t chip_config = ETH_DM9051_DEFAULT_CONFIG(
                 spi_host_device, &spi_device_interface_config
-            );
+                );
             chip_config.int_gpio_num = self->phy_int_pin;
             mac = esp_eth_mac_new_dm9051(&chip_config, &mac_config);
             self->phy = esp_eth_phy_new_dm9051(&phy_config);
@@ -238,7 +238,7 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         case PHY_W5500: {
             eth_w5500_config_t chip_config = ETH_W5500_DEFAULT_CONFIG(
                 spi_host_device, &spi_device_interface_config
-            );
+                );
             chip_config.int_gpio_num = self->phy_int_pin;
             mac = esp_eth_mac_new_w5500(&chip_config, &mac_config);
             self->phy = esp_eth_phy_new_w5500(&phy_config);

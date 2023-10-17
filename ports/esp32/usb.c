@@ -47,23 +47,22 @@
 static char serial_string[12 + 1] = {0};
 static tusb_desc_strarray_device_t descriptor_str_custom = {
     // array of pointer to string descriptors
-    (char[]){0x09, 0x04},                       // 0: is supported language is English (0x0409)
+    (char[]) {0x09, 0x04},                      // 0: is supported language is English (0x0409)
     CONFIG_TINYUSB_DESC_MANUFACTURER_STRING,    // 1: Manufacturer
     CONFIG_TINYUSB_DESC_PRODUCT_STRING,         // 2: Product
-    /*CONFIG_TINYUSB_DESC_SERIAL_STRING */
-    serial_string,                              // 3: Serials, should use chip ID 
+    serial_string,                              // 3: Serials, should use chip ID
 
-#if CONFIG_TINYUSB_CDC_ENABLED
+    #if CONFIG_TINYUSB_CDC_ENABLED
     CONFIG_TINYUSB_DESC_CDC_STRING,             // 4: CDC Interface
-#else
+    #else
     "",
-#endif
+    #endif
 
-#if CONFIG_TINYUSB_MSC_ENABLED
+    #if CONFIG_TINYUSB_MSC_ENABLED
     CONFIG_TINYUSB_DESC_MSC_STRING,             // 5: MSC Interface
-#else
+    #else
     "",
-#endif
+    #endif
 };
 
 
@@ -103,7 +102,7 @@ void usb_init(void) {
     uint8_t chipid[6];
     esp_efuse_mac_get_default(chipid);
 
-   // convert chipid to hex
+    // convert chipid to hex
     int hexlen = sizeof(serial_string) - 1;
     for (int i = 0; i < hexlen; i += 2) {
         static const char *hexdig = "0123456789abcdef";
@@ -138,7 +137,7 @@ void usb_init(void) {
         #ifdef MICROPY_HW_USB_CUSTOM_LINE_CODING_CB
         .callback_line_coding_changed = &MICROPY_HW_USB_CUSTOM_LINE_CODING_CB,
         #endif
-        #endif //MICROPY_PY_MACHINE_CDC
+        #endif // MICROPY_PY_MACHINE_CDC
     };
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
 

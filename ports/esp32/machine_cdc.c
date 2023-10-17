@@ -202,7 +202,7 @@ STATIC mp_uint_t machine_cdc_read(mp_obj_t self_in, void *buf_in, mp_uint_t size
 
     if (self->rx_ringbuf.buf != NULL) {
         while (ringbuf_avail(&self->rx_ringbuf) && (bytes_read < size)) {
-            *(uint8_t*)(buf_in + bytes_read++) = ringbuf_get(&self->rx_ringbuf);
+            *(uint8_t *)(buf_in + bytes_read++) = ringbuf_get(&self->rx_ringbuf);
         }
     }
 
@@ -237,14 +237,14 @@ STATIC mp_uint_t machine_cdc_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_
         if ((flags & MP_STREAM_POLL_RD) && ringbuf_avail(&self->rx_ringbuf)) {
             ret |= MP_STREAM_POLL_RD;
         }
-        if ((flags & MP_STREAM_POLL_WR) && 1 /* TODO? always available? */) { 
+        if ((flags & MP_STREAM_POLL_WR) && 1) {
             ret |= MP_STREAM_POLL_WR;
         }
     } else if (request == MP_STREAM_FLUSH) {
-        //TODO...
-        //size_t tinyusb_cdcacm_write_queue_char(tinyusb_cdcacm_itf_t itf, char ch);
-        //size_t tinyusb_cdcacm_write_queue(tinyusb_cdcacm_itf_t itf, const uint8_t *in_buf, size_t in_size)
-        //esp_err_t tinyusb_cdcacm_write_flush(tinyusb_cdcacm_itf_t itf, uint32_t timeout_ticks);
+        // TODO...
+        // size_t tinyusb_cdcacm_write_queue_char(tinyusb_cdcacm_itf_t itf, char ch);
+        // size_t tinyusb_cdcacm_write_queue(tinyusb_cdcacm_itf_t itf, const uint8_t *in_buf, size_t in_size)
+        // esp_err_t tinyusb_cdcacm_write_flush(tinyusb_cdcacm_itf_t itf, uint32_t timeout_ticks);
         ret = 0;
     } else {
         *errcode = MP_EINVAL;
