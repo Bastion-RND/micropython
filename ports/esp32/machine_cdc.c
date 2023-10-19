@@ -12,7 +12,9 @@
 
 #include "esp_log.h"
 
+#define LOG_LEVEL_MACHINE_CDC ESP_LOG_WARN
 #define LOG_TAG_СDC "USBCDC"
+
 #define INTERFACE TINYUSB_CDC_ACM_0
 
 const mp_obj_type_t machine_cdc_type;
@@ -157,8 +159,8 @@ STATIC mp_obj_t machine_cdc_make_new(const mp_obj_type_t *type, size_t n_args, s
     machine_cdc_obj_t *self = MP_OBJ_TO_PTR(instance);
     mp_arg_check_num(n_args, n_kw, 0, MP_OBJ_FUN_ARGS_MAX, true);
 
-    if (esp_log_level_get(LOG_TAG_СDC) != ESP_LOG_VERBOSE) {
-        esp_log_level_set(LOG_TAG_СDC, ESP_LOG_VERBOSE);
+    if (esp_log_level_get(LOG_TAG_СDC) != LOG_LEVEL_MACHINE_CDC) {
+        esp_log_level_set(LOG_TAG_СDC, LOG_LEVEL_MACHINE_CDC);
     }
 
     mp_map_t kw_args;
