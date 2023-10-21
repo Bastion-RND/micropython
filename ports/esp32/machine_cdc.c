@@ -173,7 +173,7 @@ STATIC mp_obj_t machine_cdc_make_new(const mp_obj_type_t *type, size_t n_args, s
 STATIC mp_obj_t machine_cdc_connected(mp_obj_t self_in) {
     // machine_cdc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     bool connected = tud_cdc_n_connected(INTERFACE);
-    ESP_LOGI(LOG_TAG_СDC, "connected: %s", connected ? "yes" : "no");
+    ESP_LOGD(LOG_TAG_СDC, "connected: %s", connected ? "yes" : "no");
     return mp_obj_new_bool(connected);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_cdc_connected_obj, machine_cdc_connected);
@@ -184,7 +184,7 @@ STATIC mp_obj_t machine_cdc_line_state(mp_obj_t self_in) {
     mp_obj_t dict = mp_obj_new_dict(2);
     mp_obj_dict_store(dict, mp_obj_new_str("DTR", 3), mp_obj_new_int((line_state >> 0) & 0x1));
     mp_obj_dict_store(dict, mp_obj_new_str("RTS", 3), mp_obj_new_int((line_state >> 1) & 0x1));
-    ESP_LOGI(LOG_TAG_СDC, "line state: DTR(%i), RTS(%i)", (line_state >> 0) & 0x1, (line_state >> 1) & 0x1);
+    ESP_LOGD(LOG_TAG_СDC, "line state: DTR(%i), RTS(%i)", (line_state >> 0) & 0x1, (line_state >> 1) & 0x1);
     return dict;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(machine_cdc_line_state_obj, machine_cdc_line_state);
@@ -198,7 +198,7 @@ STATIC mp_obj_t machine_cdc_line_coding(mp_obj_t self_in) {
     mp_obj_dict_store(dict, mp_obj_new_str("data_bits", 9), mp_obj_new_int(line_coding.data_bits));
     mp_obj_dict_store(dict, mp_obj_new_str("parity", 6), mp_obj_new_int(line_coding.parity));
     mp_obj_dict_store(dict, mp_obj_new_str("stop_bits", 9), mp_obj_new_int(line_coding.stop_bits));
-    ESP_LOGI(LOG_TAG_СDC, "line coding: bit_rate=%lu, data_bits=%i, parity=%i, stop_bits=%i",
+    ESP_LOGD(LOG_TAG_СDC, "line coding: bit_rate=%lu, data_bits=%i, parity=%i, stop_bits=%i",
         line_coding.bit_rate, line_coding.data_bits, line_coding.parity, line_coding.stop_bits);
     return dict;
 }
@@ -248,10 +248,24 @@ STATIC mp_uint_t machine_cdc_write(mp_obj_t self_in, const void *buf_in, mp_uint
     machine_cdc_obj_t *self = MP_OBJ_TO_PTR(self_in);
     size_t bytes_written = 0;
     if (!is_initialized(self)) {
-        *errcode = MP_ENOENT;
+        *errcode = MP_ENODEV;
         return MP_STREAM_ERROR;
     }
-    bytes_written = tinyusb_cdcacm_write_queue(INTERFACE, buf_in, size);
+    if (size == 0) {
+        return 0;
+    }
+    bytes_written += tinyusb_cdcacm_write_queue(INTERFACE, buf_in, size);
+    if (bytes_written >= 64) {
+        esp_err_t ret = tinyusb_cdcacm_write_flush(INTERFACE, pdMS_TO_TICKS(10));
+        if (ret != ESP_OK) {
+            *errcode = (ret == ESP_ERR_TIMEOUT) ? MP_ETIMEDOUT : MP_ENODEV;
+            return MP_STREAM_ERROR;
+        }
+    }
+    if (bytes_written == 0) {
+        *errcode = MP_EAGAIN;
+        return MP_STREAM_ERROR;
+    }
     ESP_LOGD(LOG_TAG_СDC, "written to queue: %u bytes", bytes_written);
     return bytes_written;
 }
