@@ -328,6 +328,9 @@ STATIC const mp_rom_map_elem_t machine_module_globals_table[] = {
     #if MICROPY_PY_MACHINE_CDC
     { MP_ROM_QSTR(MP_QSTR_CDC), MP_ROM_PTR(&machine_cdc_type) },
     #endif
+    #if MICROPY_PY_MACHINE_CAN
+    { MP_ROM_QSTR(MP_QSTR_CAN), MP_ROM_PTR(&machine_can_type) },
+    #endif
 
     // Reset reasons
     { MP_ROM_QSTR(MP_QSTR_reset_cause), MP_ROM_PTR(&machine_reset_cause_obj) },

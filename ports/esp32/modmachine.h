@@ -23,6 +23,8 @@ extern const mp_obj_type_t machine_uart_type;
 extern const mp_obj_type_t machine_rtc_type;
 extern const mp_obj_type_t machine_sdcard_type;
 extern const mp_obj_type_t machine_cdc_type;
+extern const mp_obj_type_t machine_can_type;
+
 
 void machine_init(void);
 void machine_deinit(void);

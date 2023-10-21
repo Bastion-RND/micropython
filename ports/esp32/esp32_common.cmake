@@ -73,6 +73,7 @@ list(APPEND MICROPY_SOURCE_PORT
     machine_i2s.c
     machine_uart.c
     machine_cdc.c
+    machine_can.c
     modmachine.c
     network_common.c
     network_lan.c
