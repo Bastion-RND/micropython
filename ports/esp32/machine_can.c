@@ -43,17 +43,17 @@
 #include "esp_task.h"
 #include "machine_can.h"
 
-#if MICROPY_HW_ENABLE_CAN
+#if MICROPY_PY_MACHINE_CAN
 
-#define CAN_MODE_SILENT_LOOPBACK (0x10)
+#define CAN_MODE_SILENT_LOOPBACK    (0x10)
 
 // Default baudrate: 500kb
 #define CAN_TASK_PRIORITY           (ESP_TASK_PRIO_MIN + 1)
 #define CAN_TASK_STACK_SIZE         (1024)
-#define CAN_DEFAULT_PRESCALER (8)
-#define CAN_DEFAULT_SJW (3)
-#define CAN_DEFAULT_BS1 (15)
-#define CAN_DEFAULT_BS2 (4)
+#define CAN_DEFAULT_PRESCALER       (8)
+#define CAN_DEFAULT_SJW             (3)
+#define CAN_DEFAULT_BS1             (15)
+#define CAN_DEFAULT_BS2             (4)
 #define CAN_MAX_DATA_FRAME          (8)
 
 /*
@@ -802,4 +802,4 @@ MP_DEFINE_CONST_OBJ_TYPE(
     locals_dict, (mp_obj_dict_t *)&esp32_can_locals_dict
     );
 
-#endif // MICROPY_HW_ENABLE_CAN
+#endif // MICROPY_PY_MACHINE_CAN

@@ -31,7 +31,7 @@
 
 #include "py/obj.h"
 
-#if MICROPY_HW_ENABLE_CAN
+#if MICROPY_PY_MACHINE_CAN
 
 #define DEVICE_NAME "CAN"
 
@@ -71,8 +71,8 @@ typedef enum _rx_state_t {
     RX_STATE_FIFO_OVERFLOW,
 } rx_state_t;
 
-extern const mp_obj_type_t machine_can_type;
+// extern const mp_obj_type_t machine_can_type;
 
-#endif // MICROPY_HW_ENABLE_CAN
+#endif // MICROPY_PY_MACHINE_CAN
 
 #endif // MICROPY_INCLUDED_ESP32_CAN_H
