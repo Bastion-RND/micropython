@@ -45,6 +45,9 @@
 
 #if MICROPY_PY_MACHINE_CAN
 
+#include "esp_log.h"
+#define LOG_TAG_CAN                 "CAN(TWAI)"
+
 #define CAN_MODE_SILENT_LOOPBACK    (0x10)
 
 // Default baudrate: 500kb
@@ -180,7 +183,7 @@ STATIC void esp32_hw_can_irq_task(void *self_in) {
 
 // init(mode, tx=5, rx=4, baudrate=500000, prescaler=8, sjw=3, bs1=15, bs2=4, auto_restart=False, tx_queue=1, rx_queue=1)
 STATIC mp_obj_t esp32_hw_can_init_helper(esp32_can_obj_t *self, size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    enum { ARG_mode, ARG_prescaler, ARG_sjw, ARG_bs1, ARG_bs2, ARG_auto_restart, ARG_baudrate, ARG_extframe,
+    enum { ARG_mode, ARG_extframe, ARG_prescaler, ARG_sjw, ARG_bs1, ARG_bs2, ARG_auto_restart, ARG_baudrate,
         ARG_tx_io, ARG_rx_io, ARG_tx_queue, ARG_rx_queue};
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_mode, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = TWAI_MODE_NORMAL} },
@@ -225,10 +228,10 @@ STATIC mp_obj_t esp32_hw_can_init_helper(esp32_can_obj_t *self, size_t n_args, c
     self->num_bus_off = 0;
 
     // Calculate CAN nominal bit timing from baudrate if provided
-    twai_timing_config_t *timing;
+    self->config->baudrate = args[ARG_baudrate].u_int;
     switch ((int)args[ARG_baudrate].u_int) {
     case 0:
-        timing = &((twai_timing_config_t) {
+        self->config->timing = ((twai_timing_config_t) {
             .brp = args[ARG_prescaler].u_int,
             .sjw = args[ARG_sjw].u_int,
             .tseg_1 = args[ARG_bs1].u_int,
@@ -238,67 +241,78 @@ STATIC mp_obj_t esp32_hw_can_init_helper(esp32_can_obj_t *self, size_t n_args, c
         break;
         #ifdef TWAI_TIMING_CONFIG_1KBITS
         case 1000:
-            timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_1KBITS());
+            self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_1KBITS());
             break;
         #endif
         #ifdef TWAI_TIMING_CONFIG_5KBITS
         case 5000:
-            timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_5KBITS());
+            self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_5KBITS());
             break;
         #endif
         #ifdef TWAI_TIMING_CONFIG_10KBITS
         case 10000:
-            timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_10KBITS());
+            self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_10KBITS());
             break;
         #endif
         #ifdef TWAI_TIMING_CONFIG_12_5KBITS
         case 12500:
-            timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_12_5KBITS());
+            self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_12_5KBITS());
             break;
         #endif
         #ifdef TWAI_TIMING_CONFIG_16KBITS
         case 16000:
-            timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_16KBITS());
+            self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_16KBITS());
             break;
         #endif
         #ifdef TWAI_TIMING_CONFIG_20KBITS
         case 20000:
-            timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_20KBITS());
+            self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_20KBITS());
             break;
         #endif
     case 25000:
-        timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_25KBITS());
+        self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_25KBITS());
         break;
     case 50000:
-        timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_50KBITS());
+        self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_50KBITS());
         break;
     case 100000:
-        timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_100KBITS());
+        self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_100KBITS());
         break;
     case 125000:
-        timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_125KBITS());
+        self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_125KBITS());
         break;
     case 250000:
-        timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_250KBITS());
+        self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_250KBITS());
         break;
     case 500000:
-        timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_500KBITS());
+        self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_500KBITS());
         break;
     case 800000:
-        timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_800KBITS());
+        self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_800KBITS());
         break;
     case 1000000:
-        timing = &((twai_timing_config_t)TWAI_TIMING_CONFIG_1MBITS());
+        self->config->timing = ((twai_timing_config_t)TWAI_TIMING_CONFIG_1MBITS());
         break;
     default:
         mp_raise_ValueError("Unable to set baudrate");
         self->config->baudrate = 0;
         return mp_const_none;
     }
-    self->config->timing = *timing;
 
-    check_esp_err(twai_driver_install(&self->config->general, &self->config->timing, &self->config->filter));
-    check_esp_err(twai_start());
+    esp_err_t ret;
+    ret = twai_driver_install(&self->config->general, &self->config->timing, &self->config->filter);
+    if (ret != ESP_OK) {
+        ESP_LOGE(LOG_TAG_CAN, "twai_driver_install: general=%p, timing=%p, filter=%p", 
+            &self->config->general, &self->config->timing, &self->config->filter);
+    }
+    check_esp_err(ret);
+
+    ret = twai_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(LOG_TAG_CAN, "twai_start");
+    }
+    check_esp_err(ret);
+
     if (xTaskCreatePinnedToCore(esp32_hw_can_irq_task, "can_irq_task", CAN_TASK_STACK_SIZE, self, CAN_TASK_PRIORITY, (TaskHandle_t *)&self->irq_handler, MP_TASK_COREID) != pdPASS) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("failed to create can irq task handler"));
     }
