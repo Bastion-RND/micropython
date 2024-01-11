@@ -4,9 +4,6 @@ set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.base
     boards/sdkconfig.usb
     boards/sdkconfig.ble
-    boards/sdkconfig.spiram_sx
-    boards/sdkconfig.spiram_oct
-    boards/sdkconfig.240mhz
     ${MICROPY_BOARD_DIR}/sdkconfig.board
 )
 
