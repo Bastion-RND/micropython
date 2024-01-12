@@ -44,6 +44,7 @@
 #endif
 
 #include "modnetwork.h"
+#include "extmod/modnetwork.h"
 
 typedef struct _lan_if_obj_t {
     base_if_obj_t base;
@@ -180,7 +181,6 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
     phy_config.phy_addr = self->phy_addr;
     phy_config.reset_gpio_num = self->phy_power_pin;
     self->phy = NULL;
-
     #if CONFIG_ETH_USE_SPI_ETHERNET
     spi_host_device_t spi_host_device = machine_hw_spi_get_host(args[ARG_spi].u_obj);
     spi_device_interface_config_t spi_device_interface_config = {
@@ -188,6 +188,8 @@ STATIC mp_obj_t get_lan(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_ar
         .clock_speed_hz = MICROPY_PY_NETWORK_LAN_SPI_CLOCK_SPEED_MZ * 1000 * 1000,
         .queue_size = 20,
         .spics_io_num = self->phy_cs_pin,
+        .command_bits = 0, // Can both be set to 0, as the respective
+        .address_bits = 0, // driver fills in proper default values.
     };
     #endif
 
@@ -307,6 +309,7 @@ STATIC mp_obj_t lan_active(size_t n_args, const mp_obj_t *args) {
 
     if (n_args > 1) {
         if (mp_obj_is_true(args[1])) {
+            esp_netif_set_hostname(self->base.netif, mod_network_hostname_data);
             self->base.active = (esp_eth_start(self->eth_handle) == ESP_OK);
             if (!self->base.active) {
                 mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("ethernet enable failed"));
@@ -330,7 +333,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(lan_status_obj, lan_status);
 
 STATIC mp_obj_t lan_isconnected(mp_obj_t self_in) {
     lan_if_obj_t *self = MP_OBJ_TO_PTR(self_in);
-    return self->base.active ? mp_obj_new_bool(self->phy->get_link(self->phy) == ETH_LINK_UP) : mp_const_false;
+    return mp_obj_new_bool(self->base.active && (eth_status == ETH_GOT_IP));
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(lan_isconnected_obj, lan_isconnected);
 
