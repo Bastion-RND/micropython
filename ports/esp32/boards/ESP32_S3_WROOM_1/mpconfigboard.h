@@ -4,7 +4,7 @@
 
 #define FORK_VERSION_MAJOR 0
 #define FORK_VERSION_MINOR 1
-#define FORK_VERSION_MICRO 0
+#define FORK_VERSION_MICRO 1
 #define FORK_VERSION_SUFFIX "beta"
 
 #define STR(x) #x
