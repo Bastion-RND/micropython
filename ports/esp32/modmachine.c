@@ -58,6 +58,13 @@
 #define MACHINE_CDC_EXTRA_GLOBAL
 #endif
 
+#if MICROPY_PY_MACHINE_CAN
+#define MACHINE_CAN_EXTRA_GLOBAL \
+    { MP_ROM_QSTR(MP_QSTR_CAN), MP_ROM_PTR(&machine_can_type) },
+#else
+#define MACHINE_CAN_EXTRA_GLOBAL
+#endif
+
 #define MICROPY_PY_MACHINE_EXTRA_GLOBALS \
     { MP_ROM_QSTR(MP_QSTR_sleep), MP_ROM_PTR(&machine_lightsleep_obj) }, \
     \
@@ -89,6 +96,7 @@
     \
     /* Extra objects */ \
     MACHINE_CDC_EXTRA_GLOBAL \
+    MACHINE_CAN_EXTRA_GLOBAL \
 
 typedef enum {
     MP_PWRON_RESET = 1,
