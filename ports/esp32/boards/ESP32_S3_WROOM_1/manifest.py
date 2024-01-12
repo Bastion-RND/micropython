@@ -11,4 +11,4 @@ require("umqtt.robust")
 require("umqtt.simple")
 require("upysh")
 
-require("logging")
+# require("logging")
