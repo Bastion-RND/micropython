@@ -10,10 +10,10 @@ set(SDKCONFIG_DEFAULTS
     ${MICROPY_BOARD_DIR}/sdkconfig.board
 )
 
-# set(MICROPY_SOURCE_BOARD
-    # ${MICROPY_BOARD_DIR}/???.c
-# )
+ set(MICROPY_SOURCE_BOARD
+    ${MICROPY_BOARD_DIR}/machine_cdc.c
+ )
 
-set(MICROPY_FROZEN_MANIFEST 
+set(MICROPY_FROZEN_MANIFEST
     ${MICROPY_BOARD_DIR}/manifest.py
 )

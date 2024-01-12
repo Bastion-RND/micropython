@@ -51,6 +51,13 @@
 #define MICROPY_PY_MACHINE_TOUCH_PAD_ENTRY
 #endif
 
+#ifdef MICROPY_PY_MACHINE_CDC
+#define MACHINE_CDC_EXTRA_GLOBAL \
+    { MP_ROM_QSTR(MP_QSTR_CDC), MP_ROM_PTR(&machine_cdc_type) },
+#else
+#define MACHINE_CDC_EXTRA_GLOBAL
+#endif
+
 #define MICROPY_PY_MACHINE_EXTRA_GLOBALS \
     { MP_ROM_QSTR(MP_QSTR_sleep), MP_ROM_PTR(&machine_lightsleep_obj) }, \
     \
@@ -79,6 +86,9 @@
     { MP_ROM_QSTR(MP_QSTR_TIMER_WAKE), MP_ROM_INT(ESP_SLEEP_WAKEUP_TIMER) }, \
     { MP_ROM_QSTR(MP_QSTR_TOUCHPAD_WAKE), MP_ROM_INT(ESP_SLEEP_WAKEUP_TOUCHPAD) }, \
     { MP_ROM_QSTR(MP_QSTR_ULP_WAKE), MP_ROM_INT(ESP_SLEEP_WAKEUP_ULP) }, \
+    \
+    /* Extra objects */ \
+    MACHINE_CDC_EXTRA_GLOBAL \
 
 typedef enum {
     MP_PWRON_RESET = 1,
