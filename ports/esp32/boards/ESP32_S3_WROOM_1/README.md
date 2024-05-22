@@ -8,26 +8,27 @@
 $ source ~/esp/esp-idf/export.sh
 ```
 
-## 2. If first time - make submodules
-
-```bash
-$ make BOARD=ESP32_S3_WROOM_1 submodules
-```
-
-## 3. If necessary - clean first
+## 2. Clean first
 
 ```bash
 $ make BOARD=ESP32_S3_WROOM_1 clean
 ```
 
-## 4. make it...
+## 3. Make submodules
+
+```bash
+$ make BOARD=ESP32_S3_WROOM_1 submodules
+```
+
+
+## 4. Make firmware...
 
 ```bash
 $ make BOARD=ESP32_S3_WROOM_1 
 ```
 
-## 5. get file 
-File **firmware.bin** is located in _ports/esp32/build-ESP32_S3_WROOM_1_
+## 5. Get file 
+File **firmware.bin** is located in _ports/esp32/build-ESP32_S3_WROOM_1/_
 
 ## 6. flash (somewhere)
 
