@@ -38,6 +38,66 @@
 
 #define CDC_ITF TINYUSB_CDC_ACM_0
 
+#if MICROPY_PY_MACHINE_CDC
+
+#include "esp_mac.h"
+#include "machine_cdc.h"
+
+static char serial_string[12 + 1] = {0};
+static tusb_desc_strarray_device_t descriptor_str_custom = {
+        // array of pointer to string descriptors
+        (char[]) {0x09, 0x04},              // 0: is supported language is English (0x0409)
+        CONFIG_TINYUSB_DESC_MANUFACTURER_STRING,    // 1: Manufacturer
+        CONFIG_TINYUSB_DESC_PRODUCT_STRING,         // 2: Product
+        serial_string,                              // 3: Serials, should use chip ID
+
+#if CONFIG_TINYUSB_CDC_ENABLED
+        CONFIG_TINYUSB_DESC_CDC_STRING,             // 4: CDC Interface
+#else
+        "",
+#endif
+
+#if CONFIG_TINYUSB_MSC_ENABLED
+        CONFIG_TINYUSB_DESC_MSC_STRING,             // 5: MSC Interface
+#else
+        "",
+#endif
+};
+
+void usb_init(void) {
+    uint8_t chip_id[6];
+    esp_efuse_mac_get_default(chip_id);
+
+    // convert chip_id to hex
+    int hex_len = sizeof(serial_string) - 1;
+    for (int i = 0; i < hex_len; i += 2) {
+        static const char *hex = "0123456789abcdef";
+        serial_string[i] = hex[chip_id[i / 2] >> 4];
+        serial_string[i + 1] = hex[chip_id[i / 2] & 0x0f];
+    }
+    serial_string[hex_len] = 0;
+
+    // Initialise the USB with defaults.
+    tinyusb_config_t tusb_cfg = {0};
+    tusb_cfg.string_descriptor = descriptor_str_custom;
+    ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
+
+    // Initialise the USB serial interface.
+    tinyusb_config_cdcacm_t acm_cfg = {
+            .usb_dev = TINYUSB_USBDEV_0,
+            .cdc_port = CDC_ITF,
+            .rx_unread_buf_sz = 256,
+            .callback_rx = &machine_cdc_callback,
+            .callback_rx_wanted_char = &machine_cdc_callback,
+            .callback_line_state_changed = &machine_cdc_callback,
+            .callback_line_coding_changed = &machine_cdc_callback,
+    };
+    ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
+
+}
+
+
+#else
 static uint8_t usb_rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
 
 // This is called from FreeRTOS task "tusb_tsk" in espressif__esp_tinyusb (not an ISR).
@@ -75,15 +135,15 @@ void usb_init(void) {
         .cdc_port = CDC_ITF,
         .rx_unread_buf_sz = 256,
         .callback_rx = &usb_callback_rx,
-        #ifdef MICROPY_HW_USB_CUSTOM_RX_WANTED_CHAR_CB
+#ifdef MICROPY_HW_USB_CUSTOM_RX_WANTED_CHAR_CB
         .callback_rx_wanted_char = &MICROPY_HW_USB_CUSTOM_RX_WANTED_CHAR_CB,
-        #endif
-        #ifdef MICROPY_HW_USB_CUSTOM_LINE_STATE_CB
+#endif
+#ifdef MICROPY_HW_USB_CUSTOM_LINE_STATE_CB
         .callback_line_state_changed = &MICROPY_HW_USB_CUSTOM_LINE_STATE_CB,
-        #endif
-        #ifdef MICROPY_HW_USB_CUSTOM_LINE_CODING_CB
+#endif
+#ifdef MICROPY_HW_USB_CUSTOM_LINE_CODING_CB
         .callback_line_coding_changed = &MICROPY_HW_USB_CUSTOM_LINE_CODING_CB,
-        #endif
+#endif
     };
     ESP_ERROR_CHECK(tusb_cdc_acm_init(&acm_cfg));
 
@@ -99,5 +159,6 @@ void usb_tx_strn(const char *str, size_t len) {
         tud_cdc_n_write_flush(CDC_ITF);
     }
 }
+#endif //MICROPY_PY_MACHINE_CDC
 
 #endif // CONFIG_USB_OTG_SUPPORTED && !CONFIG_ESP_CONSOLE_USB_CDC && !CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG

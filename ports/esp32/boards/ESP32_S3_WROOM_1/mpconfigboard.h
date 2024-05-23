@@ -24,7 +24,7 @@
 
 #define MICROPY_PY_NETWORK_LAN (1)
 #define MICROPY_PY_MACHINE_CDC (1)
-#define MICROPY_PY_MACHINE_CAN (1)
+//#define MICROPY_PY_MACHINE_CAN (1)
 
 
 // Enable UART REPL for modules that have an external USB-UART and don't use native USB.

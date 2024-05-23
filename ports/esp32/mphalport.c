@@ -136,7 +136,7 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
     #if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
     usb_serial_jtag_tx_strn(str, len);
     did_write = true;
-    #elif CONFIG_USB_OTG_SUPPORTED
+    #elif CONFIG_USB_OTG_SUPPORTED & !MICROPY_PY_MACHINE_CDC
     usb_tx_strn(str, len);
     did_write = true;
     #endif
