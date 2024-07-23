@@ -147,31 +147,39 @@ static mp_obj_t opentherm_make_new(const mp_obj_type_t *type, size_t n_args, siz
 //MP_DEFINE_CONST_FUN_OBJ_KW(opentherm_make_new_obj, 2, opentherm_make_new);
 
 // opentherm.write(u32)
-static mp_obj_t opentherm_write(mp_obj_t a_obj) {
-    mp_printf(&mp_plat_print, "OPENTHERM write %u", mp_obj_get_int(a_obj) );
-    return a_obj;
+static mp_obj_t opentherm_write(mp_obj_t self, mp_obj_t data) {
+    (void) self;
+    uint32_t _byte = mp_obj_get_int(data);
+//    mp_printf(&mp_plat_print,
+//              "OT W\n 0: %X\n 1: %X\n 2: %X\n 3: %X\n",
+//              (_byte >> 24 & 0xFF),
+//              (_byte >> 16 & 0xFF),
+//              (_byte >> 8 & 0xFF),
+//              (_byte >> 0 & 0xFF)
+//              );
+    return mp_obj_new_int(0);
 }
 // Define a Python reference to the function above.
-MP_DEFINE_CONST_FUN_OBJ_1(opentherm_write_obj, opentherm_write);
+MP_DEFINE_CONST_FUN_OBJ_2(opentherm_write_obj, opentherm_write);
 
 // opentherm.read()
 static mp_obj_t opentherm_read() {
-    mp_printf(&mp_plat_print, "OPENTHERM read");
+    mp_printf(&mp_plat_print, "OPENTHERM read\n");
     return mp_obj_new_int(0);
 }
-MP_DEFINE_CONST_FUN_OBJ_0(opentherm_read_obj, opentherm_read);
+MP_DEFINE_CONST_FUN_OBJ_1(opentherm_read_obj, opentherm_read);
 
 // opentherm.any()
 static mp_obj_t opentherm_any() {
-    mp_printf(&mp_plat_print, "OPENTHERM any");
+    mp_printf(&mp_plat_print, "OPENTHERM any\n");
     return mp_obj_new_int(0);
 }
-MP_DEFINE_CONST_FUN_OBJ_0(opentherm_any_obj, opentherm_any);
+MP_DEFINE_CONST_FUN_OBJ_1(opentherm_any_obj, opentherm_any);
 
 mp_rom_map_elem_t opentherm_locals_dict_table[] = {
 { MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&opentherm_write_obj) },
 { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&opentherm_read_obj) },
-{ MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&opentherm_any_obj) },
+{ MP_ROM_QSTR(MP_QSTR_any), MP_ROM_PTR(&opentherm_any_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(opentherm_locals_dict, opentherm_locals_dict_table);
