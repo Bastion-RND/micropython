@@ -23,6 +23,7 @@ typedef struct _opentherm_obj_t {
     mp_obj_base_t base;
     gpio_num_t in;
     gpio_num_t out;
+    gpio_num_t debug;
     mp_int_t invert;
     mp_int_t timeout;
     int _bit_count;
@@ -38,6 +39,7 @@ static opentherm_obj_t opentherm_obj = {
         .base = {&opentherm_type},
         .in = -1,
         .out = -1,
+        .debug = 6,
         .timeout = 100,
         .invert = 0,
         .rx_buf = {
@@ -50,34 +52,31 @@ static opentherm_obj_t opentherm_obj = {
 
 static opentherm_obj_t *instance = &opentherm_obj;
 //
-//// all code executed in ISR must be in IRAM, and any const data must be in DRAM
-//static void opentherm_irq_handler(void *arg) {
-////    mp_printf(&mp_plat_print, "IRQ!!!\n");
-//    return;
-//    // make gpio handler
-////    uint8_t rbuf[SOC_UART_FIFO_LEN];
-////    uart_hal_context_t repl_hal = REPL_HAL_DEFN();
-//    //clear irq flag
-////    uart_hal_clr_intsts_mask(&repl_hal, UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT | UART_INTR_FRAM_ERR);
-//    // put to buffer
-////    ringbuf_put(&stdin_ringbuf, rbuf[i]);
-//}
-//
-//static void mp_opentherm_irq_config(opentherm_hw_obj_t *self ){
-//    if (self == mp_const_none)
-//        return;
-//    mp_printf(&mp_plat_print, "self is not none\n");
-//    mp_printf(&mp_plat_print, "delete handler..");
-//    gpio_isr_handler_remove(self->in);
-//    mp_printf(&mp_plat_print, "Done!\n");
-//    mp_printf(&mp_plat_print, "Config triger...");
-//    gpio_set_intr_type(self->in, GPIO_INTR_POSEDGE || GPIO_INTR_NEGEDGE);
-//    mp_printf(&mp_plat_print, "Done!!!\n");
-//    mp_printf(&mp_plat_print, "Add handler...");
-//    gpio_isr_handler_add(self->in, opentherm_irq_handler, (void *)self);
-//    mp_printf(&mp_plat_print, "Done!!!\n");
-//
-//}
+// all code executed in ISR must be in IRAM, and any const data must be in DRAM
+static void opentherm_irq_handler(void *arg) {
+    gpio_set_level(instance->debug, 1);
+    gpio_set_level(instance->debug, 0);
+
+//    mp_printf(&mp_plat_print, "IRQ!!!\n");
+    return;
+    // make gpio handler
+//    uint8_t rbuf[SOC_UART_FIFO_LEN];
+//    uart_hal_context_t repl_hal = REPL_HAL_DEFN();
+    //clear irq flag
+//    uart_hal_clr_intsts_mask(&repl_hal, UART_INTR_RXFIFO_FULL | UART_INTR_RXFIFO_TOUT | UART_INTR_FRAM_ERR);
+    // put to buffer
+//    ringbuf_put(&stdin_ringbuf, rbuf[i]);
+}
+
+static void mp_opentherm_irq_config(){
+    opentherm_obj_t *self = instance;
+    if (self == mp_const_none)
+        return;
+    gpio_isr_handler_remove(self->in);
+    gpio_set_intr_type(self->in, GPIO_INTR_ANYEDGE);
+    gpio_isr_handler_add(self->in, opentherm_irq_handler, (void *)self);
+    mp_printf(&mp_plat_print, "Done!!!\n");
+}
 
 static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     (void) kind;
@@ -143,7 +142,10 @@ static mp_obj_t opentherm_make_new(const mp_obj_type_t *type, size_t n_args, siz
     mp_printf(&mp_plat_print, "Done\n ");
 
 //    mp_printf(&mp_plat_print, "Config IRQ\n");
-//    mp_opentherm_irq_config(self);
+    gpio_set_direction(self->in, GPIO_MODE_INPUT);
+    gpio_set_direction(self->out, GPIO_MODE_OUTPUT);
+    gpio_set_direction(self->debug, GPIO_MODE_OUTPUT);
+    mp_opentherm_irq_config();
     mp_printf(&mp_plat_print, "OPENTHERM inited\n");
 //    mp_opentherm_print(self);
     return MP_OBJ_FROM_PTR(self);
