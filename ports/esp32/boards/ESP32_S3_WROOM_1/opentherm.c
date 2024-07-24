@@ -16,7 +16,6 @@
 #include "py/mphal.h"
 
 
-
 #define OT_DEFAULT_TIMEOUT 100
 #define OT_DEFAULT_INVERSION 0
 
@@ -24,22 +23,29 @@ typedef struct _opentherm_obj_t {
     mp_obj_base_t base;
     gpio_num_t in;
     gpio_num_t out;
-    mp_int_t  invert;
-    mp_int_t  timeout;
+    mp_int_t invert;
+    mp_int_t timeout;
     int _bit_count;
     uint32_t _raw_data;
     uint32_t _last_time_of_use_wire;
+    ringbuf_t rx_buf;
 } opentherm_obj_t;
 
 //static const mp_obj_type_t socket_type;
 const mp_obj_type_t opentherm_type;
-
+static uint8_t _rx_buf[128];
 static opentherm_obj_t opentherm_obj = {
         .base = {&opentherm_type},
         .in = -1,
         .out = -1,
         .timeout = 100,
-        .invert = 0
+        .invert = 0,
+        .rx_buf = {
+                .buf = _rx_buf,
+                .size = sizeof(_rx_buf),
+                .iget = 0,
+                .iput = 0,
+        }
 };
 
 static opentherm_obj_t *instance = &opentherm_obj;
@@ -81,8 +87,7 @@ static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_pri
               mp_obj_new_int(self->in),
               mp_obj_new_int(self->out),
               mp_obj_new_int(self->timeout),
-              mp_obj_new_int(self->timeout))
-              ;
+              mp_obj_new_int(self->timeout));
 }
 
 //static void mp_opentherm_deinit(opentherm_hw_obj_t *self){
@@ -91,13 +96,15 @@ static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_pri
 
 // opentherm.init(in, out, timeout, invert)
 static mp_obj_t opentherm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
-    enum { ARG_in, ARG_out, ARG_timeout, ARG_invert};
+    enum {
+        ARG_in, ARG_out, ARG_timeout, ARG_invert
+    };
     mp_printf(&mp_plat_print, "Init arg table\n ");
     static const mp_arg_t allowed_args[] = {
-            { MP_QSTR_in, MP_ARG_INT, {.u_int = 0} },
-            { MP_QSTR_out, MP_ARG_INT, {.u_int = 0} },
-            { MP_QSTR_timeout, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
-            { MP_QSTR_invert, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1} },
+            {MP_QSTR_in,      MP_ARG_INT,                  {.u_int = 0}},
+            {MP_QSTR_out,     MP_ARG_INT,                  {.u_int = 0}},
+            {MP_QSTR_timeout, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
+            {MP_QSTR_invert,  MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
     };
     mp_printf(&mp_plat_print, "Check qty of args...");
     mp_arg_check_num(n_args, n_kw, 2, 4, true);
@@ -115,25 +122,23 @@ static mp_obj_t opentherm_make_new(const mp_obj_type_t *type, size_t n_args, siz
     mp_printf(&mp_plat_print, "Done\n ");
     // create instance
     mp_printf(&mp_plat_print, "create instance...");
-    opentherm_obj_t  *self = MP_OBJ_TO_PTR(instance);
+    opentherm_obj_t *self = MP_OBJ_TO_PTR(instance);
     mp_printf(&mp_plat_print, "Done\n ");
 
 
     // parse input agguments
     mp_printf(&mp_plat_print, "Validate args\n");
-    if (args[ARG_in].u_int > 0)
-    {
+    if (args[ARG_in].u_int > 0) {
         self->in = args[ARG_in].u_int;
     } else {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid IN Pin"));
     }
-    if (args[ARG_out].u_int > 0)
-    {
+    if (args[ARG_out].u_int > 0) {
         self->out = args[ARG_out].u_int;
     } else {
         mp_raise_ValueError(MP_ERROR_TEXT("invalid OUT Pin"));
     }
-    self->timeout = (args[ARG_timeout].u_int > 0) ? args[ARG_timeout].u_int: OT_DEFAULT_TIMEOUT;
+    self->timeout = (args[ARG_timeout].u_int > 0) ? args[ARG_timeout].u_int : OT_DEFAULT_TIMEOUT;
     self->invert = (args[ARG_invert].u_int >= 0) ? args[ARG_invert].u_int : OT_DEFAULT_INVERSION;
     mp_printf(&mp_plat_print, "Done\n ");
 
@@ -144,12 +149,34 @@ static mp_obj_t opentherm_make_new(const mp_obj_type_t *type, size_t n_args, siz
     return MP_OBJ_FROM_PTR(self);
 }
 
-//MP_DEFINE_CONST_FUN_OBJ_KW(opentherm_make_new_obj, 2, opentherm_make_new);
 
-// opentherm.write(u32)
-static mp_obj_t opentherm_write(mp_obj_t self, mp_obj_t data) {
-    (void) self;
-    uint32_t _byte = mp_obj_get_int(data);
+static size_t write_to_buf(uint8_t *p, size_t len) {
+    opentherm_obj_t *self = MP_OBJ_TO_PTR(instance);
+    for (size_t i = 0; i < len; i++) {
+        if (ringbuf_free(&self->rx_buf) == 0) {
+            ringbuf_get(&self->rx_buf);
+        }
+        ringbuf_put(&self->rx_buf, p[i]);
+    }
+    return len;
+}
+
+// opentherm.write(bytes, list, tupple)
+static mp_obj_t opentherm_write(mp_obj_t self_in, mp_obj_t data) {
+    if (mp_obj_is_type(data, &mp_type_bytes)) {
+        mp_buffer_info_t bufinfo;
+        mp_get_buffer_raise(data, &bufinfo, MP_BUFFER_READ);
+        return mp_obj_new_int(write_to_buf(bufinfo.buf, bufinfo.len));
+    } else if (mp_obj_is_type(data, &mp_type_list) ||
+               mp_obj_is_type(data, &mp_type_tuple)) {
+        size_t len = 0;
+        mp_obj_t *target_array_ptr = NULL;
+        mp_obj_get_array(data, &len, &target_array_ptr);
+        return mp_obj_new_int(write_to_buf(MP_OBJ_TO_PTR(target_array_ptr), len));
+
+    } else {
+        mp_raise_ValueError("Wrong type of data! Avaliable bytes, list, tuple");
+    }
 //    mp_printf(&mp_plat_print,
 //              "OT W\n 0: %X\n 1: %X\n 2: %X\n 3: %X\n",
 //              (_byte >> 24 & 0xFF),
@@ -157,29 +184,49 @@ static mp_obj_t opentherm_write(mp_obj_t self, mp_obj_t data) {
 //              (_byte >> 8 & 0xFF),
 //              (_byte >> 0 & 0xFF)
 //              );
-    return mp_obj_new_int(0);
+    return mp_obj_new_int(-1);
 }
 // Define a Python reference to the function above.
 MP_DEFINE_CONST_FUN_OBJ_2(opentherm_write_obj, opentherm_write);
 
 // opentherm.read()
-static mp_obj_t opentherm_read() {
+static mp_obj_t opentherm_read(mp_obj_t self_in) {
     mp_printf(&mp_plat_print, "OPENTHERM read\n");
-    return mp_obj_new_int(0);
+    opentherm_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    size_t bytes_read = 0;
+    size_t qty_of_avaliable = ringbuf_avail(&self->rx_buf);
+    if (qty_of_avaliable == 0) {
+        return 0;
+    }
+    byte buf_in[qty_of_avaliable];
+
+    // make sure we want at least 1 char
+    while ((bytes_read < qty_of_avaliable) && ringbuf_avail(&self->rx_buf)) {
+        int _byte = ringbuf_get(&self->rx_buf);
+        if (_byte < 0) {
+            return mp_obj_new_int(0);
+        }
+        buf_in[bytes_read++] = (byte) _byte;
+    }
+    return mp_obj_new_bytes(buf_in, qty_of_avaliable);
 }
+
+
 MP_DEFINE_CONST_FUN_OBJ_1(opentherm_read_obj, opentherm_read);
 
 // opentherm.any()
-static mp_obj_t opentherm_any() {
-    mp_printf(&mp_plat_print, "OPENTHERM any\n");
-    return mp_obj_new_int(0);
+static mp_obj_t opentherm_any(mp_obj_t self_in) {
+    opentherm_obj_t *self = MP_OBJ_TO_PTR(self_in);
+    size_t available = ringbuf_avail(&self->rx_buf);
+    return MP_OBJ_NEW_SMALL_INT(available);
 }
+
 MP_DEFINE_CONST_FUN_OBJ_1(opentherm_any_obj, opentherm_any);
 
 mp_rom_map_elem_t opentherm_locals_dict_table[] = {
-{ MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&opentherm_write_obj) },
-{ MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&opentherm_read_obj) },
-{ MP_ROM_QSTR(MP_QSTR_any), MP_ROM_PTR(&opentherm_any_obj) },
+        {MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&opentherm_write_obj)},
+        {MP_ROM_QSTR(MP_QSTR_read),  MP_ROM_PTR(&opentherm_read_obj)},
+        {MP_ROM_QSTR(MP_QSTR_any),   MP_ROM_PTR(&opentherm_any_obj)},
 };
 
 static MP_DEFINE_CONST_DICT(opentherm_locals_dict, opentherm_locals_dict_table);
@@ -198,6 +245,7 @@ MP_DEFINE_CONST_OBJ_TYPE(
 static mp_obj_t opentherm_add_ints(mp_obj_t a_obj, mp_obj_t b_obj) {
     return mp_obj_new_int(mp_obj_get_int(a_obj) + mp_obj_get_int(b_obj));
 }
+
 // Define a Python reference to the function above.
 static MP_DEFINE_CONST_FUN_OBJ_2(opentherm_add_ints_obj, opentherm_add_ints
 );
@@ -210,9 +258,9 @@ static MP_DEFINE_CONST_FUN_OBJ_2(opentherm_add_ints_obj, opentherm_add_ints
 // optimized to word-sized integers by the build system (interned strings).
 static const mp_rom_map_elem_t
         opentherm_module_globals_table[] = {
-        {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_opentherm)},
+        {MP_ROM_QSTR(MP_QSTR___name__),  MP_ROM_QSTR(MP_QSTR_opentherm)},
         {MP_ROM_QSTR(MP_QSTR_OpenTherm), MP_ROM_PTR(&opentherm_type)},
-        {MP_ROM_QSTR(MP_QSTR_add_ints), MP_ROM_PTR(&opentherm_add_ints_obj)}
+        {MP_ROM_QSTR(MP_QSTR_add_ints),  MP_ROM_PTR(&opentherm_add_ints_obj)}
 };
 
 static MP_DEFINE_CONST_DICT(opentherm_module_globals, opentherm_module_globals_table
@@ -220,7 +268,7 @@ static MP_DEFINE_CONST_DICT(opentherm_module_globals, opentherm_module_globals_t
 // Define module object.
 const mp_obj_module_t opentherm_cmodule = {
         .base = {&mp_type_module},
-        .globals = (mp_obj_dict_t * ) & opentherm_module_globals,
+        .globals = (mp_obj_dict_t *) &opentherm_module_globals,
 };
 
 // Register the module to make it available in Python.
