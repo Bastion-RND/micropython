@@ -5,9 +5,6 @@
 #include "opentherm.h"
 #include "string.h"
 
-#define TIMER_DIVIDER  8
-#define TIMER_FLAGS    0
-
 // Base data struct storage
 const mp_obj_type_t opentherm_type;
 static uint8_t _rx_buf[128];
@@ -44,6 +41,7 @@ static bool get_input() {
     return (bool) gpio_get_level(instance->in);
 }
 
+#define PACKET_TIMEOUT 200
 #define INACTIVE    0
 #define ACTIVE      1
 
@@ -54,70 +52,81 @@ void sendBit(bool high) {
     mp_hal_delay_us(500);
 }
 
-static bool isReady()
-{
+static bool isReady() {
     return instance->state == OT_READY;
 }
 
-static void handleInterrupt()
-{
-    gpio_set_level(instance->debug, gpio_get_level(instance->in));
-    if (isReady())
-    {
-        if (get_input())
-        {
-            instance->state = OT_RESPONSE_WAITING;
+static void blink_debug2(uint8_t cnt) {
+    for (uint8_t i = 0; i < cnt; i++) {
+        gpio_set_level(40, 1);
+        gpio_set_level(40, 0);
+    }
+}
+
+static void set_state(OpenThermStatus new_state) {
+    if (new_state != instance->state) {
+        if (new_state == OT_RESPONSE_START_BIT ||
+            new_state == OT_RESPONSE_INVALID ||
+            new_state == OT_RESPONSE_RECEIVING) {
+            instance->responseTimestamp = mp_hal_ticks_us();
         }
-        else
-        {
+        switch (new_state) {
+            case OT_RESPONSE_RECEIVING:
+                instance->response = 0;
+                instance->responseBitIndex = 0;
+                break;
+            case OT_RESPONSE_READY:
+//                mp_printf(&mp_plat_print, "payload:%X bI:%u\n", instance->response, instance->responseBitIndex);
+            default:
+                break;
+        }
+
+
+        blink_debug2(new_state);
+        instance->state = new_state;
+
+    }
+}
+
+static void handleInterrupt() {
+    gpio_set_level(instance->debug, gpio_get_level(instance->in));
+    if (isReady()) {
+        if (get_input()) {
+            set_state(OT_RESPONSE_WAITING);
+        } else {
             return;
         }
     }
-    unsigned long newTs = mp_hal_ticks_cpu();
+    unsigned long newTs = mp_hal_ticks_us();
     switch (instance->state) {
         case OT_RESPONSE_WAITING:
-            if (get_input())
-            {
-                instance->state = OT_RESPONSE_START_BIT;
-                instance->responseTimestamp = newTs;
-            }
-            else
-            {
-                instance->state = OT_RESPONSE_INVALID;
-                instance->responseTimestamp = newTs;
+            if (get_input()) {
+                set_state(OT_RESPONSE_START_BIT);
+            } else {
+                set_state(OT_RESPONSE_INVALID);
             }
             break;
         case OT_RESPONSE_START_BIT:
-            if ((newTs - instance->responseTimestamp < 750) && !get_input())
-            {
-                instance->state = OT_RESPONSE_RECEIVING;
-                instance->responseTimestamp = newTs;
-                instance->responseBitIndex = 0;
-            }
-            else
-            {
-                instance->state = OT_RESPONSE_INVALID;
-                instance->responseTimestamp = newTs;
+            if ((newTs - instance->responseTimestamp < 750) && !get_input()) {
+                set_state(OT_RESPONSE_RECEIVING);
+            } else {
+                set_state(OT_RESPONSE_INVALID);
             }
             break;
         case OT_RESPONSE_RECEIVING:
-            if ((newTs - instance->responseTimestamp) > 750)
-            {
-                if (instance->responseBitIndex < 32)
-                {
+            if ((newTs - instance->responseTimestamp) > 750) {
+                instance->responseTimestamp = newTs;
+                if (instance->responseBitIndex < 32) {
                     instance->response = (instance->response << 1) | !get_input();
-                    instance->responseTimestamp = newTs;
                     instance->responseBitIndex++;
-                }
-                else
-                { // stop bit
-                    instance->state = OT_READY;
-                    instance->response = 0;
-                    instance->responseBitIndex = 0;
-                    instance->responseTimestamp = newTs;
-                    write_to_buf((uint8_t *)instance->response, instance->responseBitIndex/8);
+                } else { // stop bit
+//                    write_to_buf((uint8_t *) instance->response, instance->responseBitIndex / 8);
+                    set_state(OT_RESPONSE_READY);
                 }
             }
+            break;
+        case OT_RESPONSE_READY:
+//            set_state(OT_READY);
             break;
         default:
             break;
@@ -132,36 +141,40 @@ static void handleInterrupt()
 
 const static char *TAG = "tusb_tsk";
 static TaskHandle_t s_ot_tskh;
+
 /**
  * @brief This top level thread processes all usb events and invokes callbacks
  */
-static void ot_device_task(void *arg)
-{
-    mp_print_str(&mp_plat_print, "OT task started");
+static void ot_device_task(void *arg) {
+    set_state(OT_READY);
     while (1) { // RTOS forever loop
-        if(mp_hal_ticks_cpu() - instance->responseTimestamp >= 40000){
-            instance->response = 0;
-            instance->responseBitIndex = 0;
-            instance->state = OT_READY;
-            instance->responseTimestamp = mp_hal_ticks_cpu();
-//            write_to_buf((uint8_t *)instance->response, instance->responseBitIndex/8);
+        if (instance->state == OT_RESPONSE_READY) {
+//            mp_printf(&mp_plat_print, "payload:%X bI:%u\n", instance->response, instance->responseBitIndex);
+            for (size_t i = 0; i < 32; i += 8) {
+                uint8_t data_byte = (instance->response >> i) & 0xff;
+                write_to_buf(&data_byte, 1);
+            }
+
+            set_state(OT_READY);
+        }
+        if ((mp_hal_ticks_us() - instance->responseTimestamp >= (PACKET_TIMEOUT * 1000)) &
+            (instance->state != OT_READY)) {
+            set_state(OT_READY);
         }
     }
 }
 
-esp_err_t ot_run_task(void)
-{
+esp_err_t ot_run_task(void) {
     // This function is not garanteed to be thread safe, if invoked multiple times without calling `tusb_stop_task`, will cause memory leak
     // doing a sanity check anyway
     ESP_RETURN_ON_FALSE(!s_ot_tskh, ESP_ERR_INVALID_STATE, TAG, "OT main task already started");
-    // Create a task for tinyusb device stack:
+    // Create a task:
     xTaskCreate(ot_device_task, "OpenTherm", 4096, NULL, 5, &s_ot_tskh);
     ESP_RETURN_ON_FALSE(s_ot_tskh, ESP_FAIL, TAG, "create OT main task failed");
     return ESP_OK;
 }
 
-esp_err_t ot_stop_task(void)
-{
+esp_err_t ot_stop_task(void) {
     ESP_RETURN_ON_FALSE(s_ot_tskh, ESP_ERR_INVALID_STATE, TAG, "OT main task not started yet");
     vTaskDelete(s_ot_tskh);
     s_ot_tskh = NULL;
@@ -175,7 +188,7 @@ static void mp_opentherm_gpio_irq_config() {
     gpio_isr_handler_remove(self->in);
     gpio_set_intr_type(self->in, GPIO_INTR_POSEDGE | GPIO_INTR_NEGEDGE);
     gpio_isr_handler_add(self->in, handleInterrupt, (void *) self);
-    mp_printf(&mp_plat_print, "IRQ config Done!!!\n");
+//    mp_printf(&mp_plat_print, "IRQ config Done!!!\n");
 }
 
 static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
@@ -198,7 +211,8 @@ static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_pri
 //d = Pin(41, Pin.OUT)
 //o = opentherm.OpenTherm(Pin(7, Pin.IN), Pin(15,Pin.OUT))
 // opentherm.init(in, out, timeout, invert)
-static mp_obj_t opentherm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
+static mp_obj_t
+opentherm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *all_args) {
     enum {
         ARG_in, ARG_out, ARG_timeout, ARG_invert
     };
@@ -228,7 +242,7 @@ static mp_obj_t opentherm_make_new(const mp_obj_type_t *type, size_t n_args, siz
     }
     self->timeout = (args[ARG_timeout].u_int > 0) ? args[ARG_timeout].u_int : OT_DEFAULT_TIMEOUT;
     self->invert = (args[ARG_invert].u_int >= 0) ? args[ARG_invert].u_int : OT_DEFAULT_INVERSION;
-//    ot_run_task();
+    ot_run_task();
     mp_opentherm_gpio_irq_config();
     return MP_OBJ_FROM_PTR(self);
 }
@@ -236,12 +250,15 @@ static mp_obj_t opentherm_make_new(const mp_obj_type_t *type, size_t n_args, siz
 
 static size_t write_to_buf(uint8_t *p, size_t len) {
     opentherm_obj_t *self = MP_OBJ_TO_PTR(instance);
+//    mp_printf(&mp_plat_print, "s=%u p=%u", len, *p);
     for (size_t i = 0; i < len; i++) {
+//        mp_printf(&mp_plat_print, "%X ", *p[i]);
         if (ringbuf_free(&self->rx_buf) == 0) {
             ringbuf_get(&self->rx_buf);
         }
         ringbuf_put(&self->rx_buf, p[i]);
     }
+//    mp_printf(&mp_plat_print, "\n");
     return len;
 }
 
@@ -269,24 +286,28 @@ MP_DEFINE_CONST_FUN_OBJ_2(opentherm_write_obj, opentherm_write);
 
 // opentherm.read()
 static mp_obj_t opentherm_read(mp_obj_t self_in) {
-    mp_printf(&mp_plat_print, "OPENTHERM read\n");
+//    mp_printf(&mp_plat_print, "OPENTHERM read\n");
     opentherm_obj_t *self = MP_OBJ_TO_PTR(self_in);
     size_t bytes_read = 0;
     size_t qty_of_avaliable = ringbuf_avail(&self->rx_buf);
-    if (qty_of_avaliable == 0) {
-        return 0;
+    if (qty_of_avaliable < 4) {
+        return mp_obj_new_int(0);;
     }
     byte buf_in[qty_of_avaliable];
 
     // make sure we want at least 1 char
-    while ((bytes_read < qty_of_avaliable) && ringbuf_avail(&self->rx_buf)) {
+    if (!ringbuf_avail(&self->rx_buf)) {
+        return mp_obj_new_int(0);;
+    }
+
+    while ((bytes_read < 4) && ringbuf_avail(&self->rx_buf)) {
         int _byte = ringbuf_get(&self->rx_buf);
         if (_byte < 0) {
             return mp_obj_new_int(0);
         }
         buf_in[bytes_read++] = (byte) _byte;
     }
-    return mp_obj_new_bytes(buf_in, qty_of_avaliable);
+    return mp_obj_new_bytes(buf_in, 4);
 }
 
 
@@ -296,7 +317,7 @@ MP_DEFINE_CONST_FUN_OBJ_1(opentherm_read_obj, opentherm_read);
 static mp_obj_t opentherm_any(mp_obj_t self_in) {
     opentherm_obj_t *self = MP_OBJ_TO_PTR(self_in);
     size_t available = ringbuf_avail(&self->rx_buf);
-    return MP_OBJ_NEW_SMALL_INT(available);
+    return MP_OBJ_NEW_SMALL_INT(available / 4);
 }
 
 MP_DEFINE_CONST_FUN_OBJ_1(opentherm_any_obj, opentherm_any);
