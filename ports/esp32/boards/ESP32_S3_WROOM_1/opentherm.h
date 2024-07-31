@@ -50,12 +50,4 @@ typedef struct _opentherm_obj_t {
     ringbuf_t rx_buf;
 } opentherm_obj_t;
 
-
-/* Functions -----------------------------------------------------------------*/
-
-extern void OPENTHERM_Encode(uint8_t *data, uint8_t size);
-
-extern void OPENTHERM_DecodeReset();
-
-
 #endif //MICROPYTHON_OPENTHERM_H

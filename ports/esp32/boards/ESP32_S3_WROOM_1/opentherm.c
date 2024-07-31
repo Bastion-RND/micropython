@@ -3,7 +3,16 @@
 //
 
 #include "opentherm.h"
-#include "string.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include "esp_check.h"
+
+const static char *TAG = "ot_tsk";
+static TaskHandle_t s_ot_tskh;
+#define PACKET_TIMEOUT 200
+#define INACTIVE    0
+#define ACTIVE      1
 
 // Base data struct storage
 const mp_obj_type_t opentherm_type;
@@ -34,6 +43,7 @@ static size_t write_to_buf(uint8_t *p, size_t len);
 //manchester Code functions
 static void set_output(uint8_t state) {
     gpio_set_level(instance->out, state);
+    gpio_set_level(39, state);
 }
 
 /*----------------------------------------------------------------------------*/
@@ -41,16 +51,6 @@ static bool get_input() {
     return (bool) gpio_get_level(instance->in);
 }
 
-#define PACKET_TIMEOUT 200
-#define INACTIVE    0
-#define ACTIVE      1
-
-void sendBit(bool high) {
-    set_output(high ? ACTIVE : INACTIVE);
-    mp_hal_delay_us(500);
-    set_output(high ? INACTIVE : ACTIVE);
-    mp_hal_delay_us(500);
-}
 
 static bool isReady() {
     return instance->state == OT_READY;
@@ -87,6 +87,42 @@ static void set_state(OpenThermStatus new_state) {
 
     }
 }
+
+
+void setIdleState() {
+    set_output(ACTIVE);
+}
+
+void setActiveState() {
+    set_output(INACTIVE);
+}
+
+void sendBit(bool high) {
+    set_output(high ? ACTIVE : INACTIVE);
+    mp_hal_delay_us(500);
+    set_output(high ? INACTIVE : ACTIVE);
+    mp_hal_delay_us(500);
+}
+
+bool bitRead(uint32_t request, uint8_t pos) {
+    return (request >> (pos)) & 0x01;
+}
+
+void sendResponse(uint32_t response) {
+    if (!isReady()) {
+        return;
+    }
+    set_state(OT_REQUEST_SENDING);
+
+    sendBit(1); // start bit
+    for (int i = 31; i >= 0; i--) {
+        sendBit(bitRead(response, i));
+    }
+    sendBit(1); // stop bit
+    setIdleState();
+    set_state(OT_READY);
+}
+
 
 static void handleInterrupt() {
     gpio_set_level(instance->debug, gpio_get_level(instance->in));
@@ -134,27 +170,17 @@ static void handleInterrupt() {
 
 }
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_log.h"
-#include "esp_check.h"
 
-const static char *TAG = "tusb_tsk";
-static TaskHandle_t s_ot_tskh;
 
-/**
- * @brief This top level thread processes all usb events and invokes callbacks
- */
+
 static void ot_device_task(void *arg) {
     set_state(OT_READY);
     while (1) { // RTOS forever loop
         if (instance->state == OT_RESPONSE_READY) {
-//            mp_printf(&mp_plat_print, "payload:%X bI:%u\n", instance->response, instance->responseBitIndex);
             for (size_t i = 0; i < 32; i += 8) {
                 uint8_t data_byte = (instance->response >> i) & 0xff;
                 write_to_buf(&data_byte, 1);
             }
-
             set_state(OT_READY);
         }
         if ((mp_hal_ticks_us() - instance->responseTimestamp >= (PACKET_TIMEOUT * 1000)) &
@@ -165,8 +191,6 @@ static void ot_device_task(void *arg) {
 }
 
 esp_err_t ot_run_task(void) {
-    // This function is not garanteed to be thread safe, if invoked multiple times without calling `tusb_stop_task`, will cause memory leak
-    // doing a sanity check anyway
     ESP_RETURN_ON_FALSE(!s_ot_tskh, ESP_ERR_INVALID_STATE, TAG, "OT main task already started");
     // Create a task:
     xTaskCreate(ot_device_task, "OpenTherm", 4096, NULL, 5, &s_ot_tskh);
@@ -188,7 +212,6 @@ static void mp_opentherm_gpio_irq_config() {
     gpio_isr_handler_remove(self->in);
     gpio_set_intr_type(self->in, GPIO_INTR_POSEDGE | GPIO_INTR_NEGEDGE);
     gpio_isr_handler_add(self->in, handleInterrupt, (void *) self);
-//    mp_printf(&mp_plat_print, "IRQ config Done!!!\n");
 }
 
 static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
@@ -247,18 +270,26 @@ opentherm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const 
     return MP_OBJ_FROM_PTR(self);
 }
 
-
 static size_t write_to_buf(uint8_t *p, size_t len) {
     opentherm_obj_t *self = MP_OBJ_TO_PTR(instance);
-//    mp_printf(&mp_plat_print, "s=%u p=%u", len, *p);
     for (size_t i = 0; i < len; i++) {
-//        mp_printf(&mp_plat_print, "%X ", *p[i]);
         if (ringbuf_free(&self->rx_buf) == 0) {
             ringbuf_get(&self->rx_buf);
         }
         ringbuf_put(&self->rx_buf, p[i]);
     }
-//    mp_printf(&mp_plat_print, "\n");
+    return len;
+}
+
+static int opentherm_send(uint8_t* buf, uint8_t len){
+    if (len>4){
+        return -1;
+    }
+    uint32_t send_value = 0;
+    for (size_t i = 0; i < len; i++) {
+        send_value += (buf[i] & 0xff) << (8*i);
+    }
+    sendResponse(send_value);
     return len;
 }
 
@@ -267,18 +298,17 @@ static mp_obj_t opentherm_write(mp_obj_t self_in, mp_obj_t data) {
     if (mp_obj_is_type(data, &mp_type_bytes)) {
         mp_buffer_info_t bufinfo;
         mp_get_buffer_raise(data, &bufinfo, MP_BUFFER_READ);
-//        OPENTHERM_Encode(bufinfo.buf, bufinfo.len);
-        return mp_obj_new_int(bufinfo.len);
+        return mp_obj_new_int(opentherm_send(bufinfo.buf, bufinfo.len));
+
     } else if (mp_obj_is_type(data, &mp_type_list) ||
                mp_obj_is_type(data, &mp_type_tuple)) {
         size_t len = 0;
         mp_obj_t *target_array_ptr = NULL;
         mp_obj_get_array(data, &len, &target_array_ptr);
-//        OPENTHERM_Encode(MP_OBJ_TO_PTR(target_array_ptr), len);
-        return mp_obj_new_int(len);
+        return mp_obj_new_int(opentherm_send(MP_OBJ_TO_PTR(target_array_ptr), len));
 
     } else {
-        mp_raise_ValueError("Wrong type of data! Avaliable bytes, list, tuple");
+        mp_raise_ValueError("Wrong type of data! Avaliable bytes, list, tuple. len = 4");
     }
 }
 // Define a Python reference to the function above.
