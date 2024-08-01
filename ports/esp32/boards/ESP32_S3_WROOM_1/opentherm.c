@@ -108,22 +108,6 @@ bool bitRead(uint32_t request, uint8_t pos) {
     return (request >> (pos)) & 0x01;
 }
 
-void send_byte(uint32_t response) {
-    if (!isReady()) {
-        return;
-    }
-    set_state(OT_REQUEST_SENDING);
-
-    sendBit(1); // start bit
-    for (int i = 0; i < 8; i++) {
-        sendBit(bitRead(response, i));
-    }
-    sendBit(1); // stop bit
-//    setIdleState();
-    set_state(OT_READY);
-}
-
-
 static void handleInterrupt() {
     gpio_set_level(instance->debug, gpio_get_level(instance->in));
     if (isReady()) {
@@ -282,15 +266,24 @@ static size_t write_to_buf(uint8_t *p, size_t len) {
 }
 
 static int opentherm_send(uint8_t* buf, uint8_t len){
-    if (len>4){
+    if (len!=4){
         return -1;
     }
-    uint32_t send_value = 0;
-    for (size_t i = 0; i < len; i++) {
-        send_byte(buf[i]);
-//        send_value += (buf[i] & 0xff) << (8*i);
+    if (!isReady()) {
+        return -1;
     }
-//    send32bit(send_value);
+    set_state(OT_REQUEST_SENDING);
+
+    sendBit(1); // start bit
+    for (int i = 0; i<len; i++){
+        for (int j = 7; j >= 0; j--) {
+            sendBit(bitRead(buf[i], j));
+        }
+    }
+
+    sendBit(1); // stop bit
+//    setIdleState();
+    set_state(OT_READY);
     return len;
 }
 
