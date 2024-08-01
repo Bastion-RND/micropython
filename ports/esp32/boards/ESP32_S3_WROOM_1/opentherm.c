@@ -3,6 +3,7 @@
 //
 
 #include "opentherm.h"
+#include "string.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -140,8 +141,11 @@ static void handleInterrupt() {
                     instance->response = (instance->response << 1) | !get_input();
                     instance->responseBitIndex++;
                 } else { // stop bit
-//                    write_to_buf((uint8_t *) instance->response, instance->responseBitIndex / 8);
-                    set_state(OT_RESPONSE_READY);
+                    for (int8_t i = 24; i >= 0; i -= 8) {
+                        uint8_t data_byte = (instance->response >> i) & 0xff;
+                        write_to_buf(&data_byte, 1);
+                    }
+                    set_state(OT_READY);
                 }
             }
             break;
@@ -160,13 +164,6 @@ static void handleInterrupt() {
 static void ot_device_task(void *arg) {
     set_state(OT_READY);
     while (1) { // RTOS forever loop
-        if (instance->state == OT_RESPONSE_READY) {
-            for (int8_t i = 24; i >= 0; i -= 8) {
-                uint8_t data_byte = (instance->response >> i) & 0xff;
-                write_to_buf(&data_byte, 1);
-            }
-            set_state(OT_READY);
-        }
         if ((mp_hal_ticks_us() - instance->responseTimestamp >= (PACKET_TIMEOUT * 1000)) &
             (instance->state != OT_READY)) {
             set_state(OT_READY);
@@ -189,13 +186,16 @@ esp_err_t ot_stop_task(void) {
     return ESP_OK;
 }
 
-static void mp_opentherm_gpio_irq_config() {
+static void mp_opentherm_gpio_irq_config(bool enable) {
     opentherm_obj_t *self = instance;
     if (self == mp_const_none)
         return;
     gpio_isr_handler_remove(self->in);
-    gpio_set_intr_type(self->in, GPIO_INTR_POSEDGE | GPIO_INTR_NEGEDGE);
-    gpio_isr_handler_add(self->in, handleInterrupt, (void *) self);
+    if (enable){
+        gpio_set_intr_type(self->in, GPIO_INTR_POSEDGE | GPIO_INTR_NEGEDGE);
+        gpio_isr_handler_add(self->in, handleInterrupt, (void *) self);
+    }
+
 }
 
 static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
@@ -209,9 +209,24 @@ static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_pri
               mp_obj_new_int(self->timeout));
 }
 
-//static void mp_opentherm_deinit(opentherm_hw_obj_t *self){
-//    return self;
-//}
+STATIC mp_obj_t opentherm_deinit(mp_obj_t self_in) {
+    opentherm_obj_t * self = MP_OBJ_TO_PTR(self_in);
+    ESP_LOGD(TAG, "deinit self: %p, buf ptr: %p", self, self->rx_buf.buf);
+    if (self) {
+        memset(self->rx_buf.buf, 0x00, self->rx_buf.size);
+        self->rx_buf.iget = 0;
+        self->rx_buf.iput = 0;
+    }
+    mp_opentherm_gpio_irq_config(false);
+    ot_stop_task();
+    ESP_LOGD(TAG, "deinited...");
+
+    return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(opentherm_deinit_obj, opentherm_deinit);
+
+
 //
 // from machine import Pin
 // import opentherm
@@ -250,7 +265,7 @@ opentherm_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const 
     self->timeout = (args[ARG_timeout].u_int > 0) ? args[ARG_timeout].u_int : OT_DEFAULT_TIMEOUT;
     self->invert = (args[ARG_invert].u_int >= 0) ? args[ARG_invert].u_int : OT_DEFAULT_INVERSION;
     ot_run_task();
-    mp_opentherm_gpio_irq_config();
+    mp_opentherm_gpio_irq_config(true);
     return MP_OBJ_FROM_PTR(self);
 }
 
@@ -347,6 +362,8 @@ static mp_obj_t opentherm_any(mp_obj_t self_in) {
 MP_DEFINE_CONST_FUN_OBJ_1(opentherm_any_obj, opentherm_any);
 
 mp_rom_map_elem_t opentherm_locals_dict_table[] = {
+        { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&opentherm_deinit_obj) },
+        { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&opentherm_deinit_obj) },
         {MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&opentherm_write_obj)},
         {MP_ROM_QSTR(MP_QSTR_read),  MP_ROM_PTR(&opentherm_read_obj)},
         {MP_ROM_QSTR(MP_QSTR_any),   MP_ROM_PTR(&opentherm_any_obj)},
@@ -365,15 +382,6 @@ MP_DEFINE_CONST_OBJ_TYPE(
 
 //module function
 
-static mp_obj_t opentherm_add_ints(mp_obj_t a_obj, mp_obj_t b_obj) {
-    return mp_obj_new_int(mp_obj_get_int(a_obj) + mp_obj_get_int(b_obj));
-}
-
-// Define a Python reference to the function above.
-static MP_DEFINE_CONST_FUN_OBJ_2(opentherm_add_ints_obj, opentherm_add_ints
-);
-
-
 // Define all attributes of the module.
 // Table entries are key/value pairs of the attribute name (a string)
 // and the MicroPython object reference.
@@ -381,9 +389,8 @@ static MP_DEFINE_CONST_FUN_OBJ_2(opentherm_add_ints_obj, opentherm_add_ints
 // optimized to word-sized integers by the build system (interned strings).
 static const mp_rom_map_elem_t
         opentherm_module_globals_table[] = {
-        {MP_ROM_QSTR(MP_QSTR___name__),  MP_ROM_QSTR(MP_QSTR_opentherm)},
+        {MP_ROM_QSTR(MP_QSTR___name__),  MP_ROM_QSTR(MP_QSTR_OpenTherm)},
         {MP_ROM_QSTR(MP_QSTR_OpenTherm), MP_ROM_PTR(&opentherm_type)},
-        {MP_ROM_QSTR(MP_QSTR_add_ints),  MP_ROM_PTR(&opentherm_add_ints_obj)}
 };
 
 static MP_DEFINE_CONST_DICT(opentherm_module_globals, opentherm_module_globals_table
