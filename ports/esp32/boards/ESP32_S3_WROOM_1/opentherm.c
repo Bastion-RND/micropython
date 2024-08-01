@@ -108,18 +108,18 @@ bool bitRead(uint32_t request, uint8_t pos) {
     return (request >> (pos)) & 0x01;
 }
 
-void sendResponse(uint32_t response) {
+void send_byte(uint32_t response) {
     if (!isReady()) {
         return;
     }
     set_state(OT_REQUEST_SENDING);
 
     sendBit(1); // start bit
-    for (int i = 31; i >= 0; i--) {
+    for (int i = 0; i < 8; i++) {
         sendBit(bitRead(response, i));
     }
     sendBit(1); // stop bit
-    setIdleState();
+//    setIdleState();
     set_state(OT_READY);
 }
 
@@ -177,7 +177,7 @@ static void ot_device_task(void *arg) {
     set_state(OT_READY);
     while (1) { // RTOS forever loop
         if (instance->state == OT_RESPONSE_READY) {
-            for (size_t i = 0; i < 32; i += 8) {
+            for (int8_t i = 24; i >= 0; i -= 8) {
                 uint8_t data_byte = (instance->response >> i) & 0xff;
                 write_to_buf(&data_byte, 1);
             }
@@ -287,9 +287,10 @@ static int opentherm_send(uint8_t* buf, uint8_t len){
     }
     uint32_t send_value = 0;
     for (size_t i = 0; i < len; i++) {
-        send_value += (buf[i] & 0xff) << (8*i);
+        send_byte(buf[i]);
+//        send_value += (buf[i] & 0xff) << (8*i);
     }
-    sendResponse(send_value);
+//    send32bit(send_value);
     return len;
 }
 
