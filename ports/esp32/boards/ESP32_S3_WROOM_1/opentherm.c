@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_check.h"
+#include "esp_timer.h"
 
 const static char *TAG = "ot_tsk";
 static TaskHandle_t s_ot_tskh;
@@ -77,6 +78,9 @@ static void set_state(OpenThermStatus new_state) {
                 instance->responseBitIndex = 0;
                 break;
             case OT_RESPONSE_READY:
+                instance->response = 0;
+                instance->responseBitIndex = 0;
+                instance->responseTimestamp = mp_hal_ticks_us();
 //                mp_printf(&mp_plat_print, "payload:%X bI:%u\n", instance->response, instance->responseBitIndex);
             default:
                 break;
@@ -128,14 +132,14 @@ static void handleInterrupt() {
             }
             break;
         case OT_RESPONSE_START_BIT:
-            if ((newTs - instance->responseTimestamp < 750) && !get_input()) {
+            if ((newTs < instance->responseTimestamp + 750) && !get_input()) {
                 set_state(OT_RESPONSE_RECEIVING);
             } else {
                 set_state(OT_RESPONSE_INVALID);
             }
             break;
         case OT_RESPONSE_RECEIVING:
-            if ((newTs - instance->responseTimestamp) > 750) {
+            if (newTs >= (instance->responseTimestamp + 750)) {
                 instance->responseTimestamp = newTs;
                 if (instance->responseBitIndex < 32) {
                     instance->response = (instance->response << 1) | !get_input();
@@ -159,15 +163,37 @@ static void handleInterrupt() {
 }
 
 
-
-
 static void ot_device_task(void *arg) {
     set_state(OT_READY);
+//    uint32_t last_update = mp_hal_ticks_ms();
+    const TickType_t xDelay = 500 / portTICK_PERIOD_MS;
     while (1) { // RTOS forever loop
-        if ((mp_hal_ticks_us() - instance->responseTimestamp >= (PACKET_TIMEOUT * 1000)) &
-            (instance->state != OT_READY)) {
-            set_state(OT_READY);
-        }
+        // Block for 500ms.
+        uint32_t now = mp_hal_ticks_us();
+        mp_printf(&mp_plat_print, "now=%u\n", now);
+        vTaskDelay(xDelay);
+
+
+//        if ( now >= (instance->responseTimestamp + (PACKET_TIMEOUT*1000))) {
+//            if (instance->state == OT_RESPONSE_START_BIT ||
+//                instance->state == OT_RESPONSE_RECEIVING ||
+//                instance->state == OT_RESPONSE_INVALID) {
+//                mp_printf(&mp_plat_print, "%u - %u = %u OT error incomming. get %u bits\n",
+//                          now,
+//                          instance->responseTimestamp,
+//                          (now - instance->responseTimestamp),
+//                          instance->responseBitIndex);
+//                set_state(OT_READY);
+//            }
+//        }
+//        if (mp_hal_ticks_us() >= (last_update + (1000*1000))) {
+//            mp_printf(&mp_plat_print, "OT heartBit\n");
+//            mp_printf(&mp_plat_print, "%u - %u = %u\n",
+//                      mp_hal_ticks_us(),
+//                      last_update,
+//                      (mp_hal_ticks_us() - last_update));
+//            last_update = mp_hal_ticks_us();
+//        }
     }
 }
 
@@ -191,7 +217,7 @@ static void mp_opentherm_gpio_irq_config(bool enable) {
     if (self == mp_const_none)
         return;
     gpio_isr_handler_remove(self->in);
-    if (enable){
+    if (enable) {
         gpio_set_intr_type(self->in, GPIO_INTR_POSEDGE | GPIO_INTR_NEGEDGE);
         gpio_isr_handler_add(self->in, handleInterrupt, (void *) self);
     }
@@ -210,7 +236,7 @@ static void mp_opentherm_print(const mp_print_t *print, mp_obj_t self_in, mp_pri
 }
 
 STATIC mp_obj_t opentherm_deinit(mp_obj_t self_in) {
-    opentherm_obj_t * self = MP_OBJ_TO_PTR(self_in);
+    opentherm_obj_t *self = MP_OBJ_TO_PTR(self_in);
     ESP_LOGD(TAG, "deinit self: %p, buf ptr: %p", self, self->rx_buf.buf);
     if (self) {
         memset(self->rx_buf.buf, 0x00, self->rx_buf.size);
@@ -280,17 +306,17 @@ static size_t write_to_buf(uint8_t *p, size_t len) {
     return len;
 }
 
-static int opentherm_send(uint8_t* buf, uint8_t len){
-    if (len!=4){
-        return -1;
+static mp_obj_t opentherm_send(uint8_t *buf, uint8_t len) {
+    if (len != 4) {
+        return mp_const_none;
     }
     if (!isReady()) {
-        return -1;
+        return mp_const_none;
     }
     set_state(OT_REQUEST_SENDING);
 
     sendBit(1); // start bit
-    for (int i = 0; i<len; i++){
+    for (int i = 0; i < len; i++) {
         for (int j = 7; j >= 0; j--) {
             sendBit(bitRead(buf[i], j));
         }
@@ -299,7 +325,7 @@ static int opentherm_send(uint8_t* buf, uint8_t len){
     sendBit(1); // stop bit
 //    setIdleState();
     set_state(OT_READY);
-    return len;
+    return mp_obj_new_int(len);
 }
 
 // opentherm.write(bytes, list, tupple)
@@ -307,14 +333,14 @@ static mp_obj_t opentherm_write(mp_obj_t self_in, mp_obj_t data) {
     if (mp_obj_is_type(data, &mp_type_bytes)) {
         mp_buffer_info_t bufinfo;
         mp_get_buffer_raise(data, &bufinfo, MP_BUFFER_READ);
-        return mp_obj_new_int(opentherm_send(bufinfo.buf, bufinfo.len));
+        return opentherm_send(bufinfo.buf, bufinfo.len);
 
     } else if (mp_obj_is_type(data, &mp_type_list) ||
                mp_obj_is_type(data, &mp_type_tuple)) {
         size_t len = 0;
         mp_obj_t *target_array_ptr = NULL;
         mp_obj_get_array(data, &len, &target_array_ptr);
-        return mp_obj_new_int(opentherm_send(MP_OBJ_TO_PTR(target_array_ptr), len));
+        return opentherm_send(MP_OBJ_TO_PTR(target_array_ptr), len);
 
     } else {
         mp_raise_ValueError("Wrong type of data! Avaliable bytes, list, tuple. len = 4");
@@ -362,11 +388,11 @@ static mp_obj_t opentherm_any(mp_obj_t self_in) {
 MP_DEFINE_CONST_FUN_OBJ_1(opentherm_any_obj, opentherm_any);
 
 mp_rom_map_elem_t opentherm_locals_dict_table[] = {
-        { MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&opentherm_deinit_obj) },
-        { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&opentherm_deinit_obj) },
-        {MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&opentherm_write_obj)},
-        {MP_ROM_QSTR(MP_QSTR_read),  MP_ROM_PTR(&opentherm_read_obj)},
-        {MP_ROM_QSTR(MP_QSTR_any),   MP_ROM_PTR(&opentherm_any_obj)},
+        {MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&opentherm_deinit_obj)},
+        {MP_ROM_QSTR(MP_QSTR_deinit),  MP_ROM_PTR(&opentherm_deinit_obj)},
+        {MP_ROM_QSTR(MP_QSTR_write),   MP_ROM_PTR(&opentherm_write_obj)},
+        {MP_ROM_QSTR(MP_QSTR_read),    MP_ROM_PTR(&opentherm_read_obj)},
+        {MP_ROM_QSTR(MP_QSTR_any),     MP_ROM_PTR(&opentherm_any_obj)},
 };
 
 static MP_DEFINE_CONST_DICT(opentherm_locals_dict, opentherm_locals_dict_table);
@@ -389,7 +415,7 @@ MP_DEFINE_CONST_OBJ_TYPE(
 // optimized to word-sized integers by the build system (interned strings).
 static const mp_rom_map_elem_t
         opentherm_module_globals_table[] = {
-        {MP_ROM_QSTR(MP_QSTR___name__),  MP_ROM_QSTR(MP_QSTR_OpenTherm)},
+        {MP_ROM_QSTR(MP_QSTR___name__),  MP_ROM_QSTR(MP_QSTR_opentherm)},
         {MP_ROM_QSTR(MP_QSTR_OpenTherm), MP_ROM_PTR(&opentherm_type)},
 };
 
