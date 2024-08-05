@@ -166,34 +166,19 @@ static void handleInterrupt() {
 static void ot_device_task(void *arg) {
     set_state(OT_READY);
 //    uint32_t last_update = mp_hal_ticks_ms();
-    const TickType_t xDelay = 500 / portTICK_PERIOD_MS;
+    const TickType_t xDelay = 10 / portTICK_PERIOD_MS;
     while (1) { // RTOS forever loop
-        // Block for 500ms.
         uint32_t now = mp_hal_ticks_us();
-        mp_printf(&mp_plat_print, "now=%u\n", now);
+        if (now >= (instance->responseTimestamp + (PACKET_TIMEOUT * 1000))) {
+            if (instance->state == OT_RESPONSE_START_BIT ||
+                instance->state == OT_RESPONSE_RECEIVING ||
+                instance->state == OT_RESPONSE_INVALID) {
+                mp_printf(&mp_plat_print, "OT error incomming. get %u bits\n",
+                          instance->responseBitIndex);
+                set_state(OT_READY);
+            }
+        }
         vTaskDelay(xDelay);
-
-
-//        if ( now >= (instance->responseTimestamp + (PACKET_TIMEOUT*1000))) {
-//            if (instance->state == OT_RESPONSE_START_BIT ||
-//                instance->state == OT_RESPONSE_RECEIVING ||
-//                instance->state == OT_RESPONSE_INVALID) {
-//                mp_printf(&mp_plat_print, "%u - %u = %u OT error incomming. get %u bits\n",
-//                          now,
-//                          instance->responseTimestamp,
-//                          (now - instance->responseTimestamp),
-//                          instance->responseBitIndex);
-//                set_state(OT_READY);
-//            }
-//        }
-//        if (mp_hal_ticks_us() >= (last_update + (1000*1000))) {
-//            mp_printf(&mp_plat_print, "OT heartBit\n");
-//            mp_printf(&mp_plat_print, "%u - %u = %u\n",
-//                      mp_hal_ticks_us(),
-//                      last_update,
-//                      (mp_hal_ticks_us() - last_update));
-//            last_update = mp_hal_ticks_us();
-//        }
     }
 }
 
