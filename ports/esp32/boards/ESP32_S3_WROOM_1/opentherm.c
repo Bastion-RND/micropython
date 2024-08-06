@@ -13,8 +13,8 @@
 const static char *TAG = "ot_tsk";
 static TaskHandle_t s_ot_tskh;
 #define PACKET_TIMEOUT 200
-#define INACTIVE    0
-#define ACTIVE      1
+#define INACTIVE    1
+#define ACTIVE      0
 
 // Base data struct storage
 const mp_obj_type_t opentherm_type;
