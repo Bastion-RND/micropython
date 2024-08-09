@@ -77,7 +77,7 @@ static void set_state(OpenThermStatus new_state) {
                 instance->response = 0;
                 instance->responseBitIndex = 0;
                 break;
-            case OT_RESPONSE_READY:
+            case OT_READY:
                 instance->response = 0;
                 instance->responseBitIndex = 0;
                 instance->responseTimestamp = mp_hal_ticks_us();
@@ -152,9 +152,6 @@ static void handleInterrupt() {
                     set_state(OT_READY);
                 }
             }
-            break;
-        case OT_RESPONSE_READY:
-//            set_state(OT_READY);
             break;
         default:
             break;
